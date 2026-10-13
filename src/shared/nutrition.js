@@ -1,6 +1,7 @@
 // Nutrition: a local food reference for rough estimates, plus a rule-based fuelling coach.
 // All numbers are estimates per typical portion — always shown as approximate.
 import { timeToMin, minToTime } from './dates.js';
+import { wordDist, fmtDist } from './units.js';
 
 // kcal, protein, carbs, fat (g) per typical portion
 const F = (keys, name, portion, kcal, p, c, f, tags = []) => ({ keys, name, portion, kcal, p, c, f, tags });
@@ -241,8 +242,8 @@ export function nutritionAdvice(ctx) {
     headline = ranMi >= 5 ? 'Refuel after your long run' : 'Recover from your run';
     lines.push(
       ranMi >= 5
-        ? `You've run ${ranMi.toFixed(1)} miles today. Prioritise a meal with carbohydrates and protein, and drink regularly through the afternoon. You don't need to add another session to compensate for anything.`
-        : `You've run ${ranMi.toFixed(1)} miles. A meal or snack with carbohydrates and some protein in the next hour or two will help you recover.`
+        ? `You've run ${wordDist(ranMi)} today. Prioritise a meal with carbohydrates and protein, and drink regularly through the afternoon. You don't need to add another session to compensate for anything.`
+        : `You've run ${wordDist(ranMi)}. A meal or snack with carbohydrates and some protein in the next hour or two will help you recover.`
     );
     ideas = pickIdeas({ slot: nowMin > 17 * 60 ? 'dinner' : nowMin < 10.5 * 60 ? 'breakfast' : 'lunch', tags: ['postrun', 'protein', 'carb'], prefs, pantry });
     if (nowMin < 17 * 60 && nowMin > 10.5 * 60) ideas = [...pickIdeas({ slot: 'snack', tags: ['postrun'], prefs, pantry, n: 1 }), ...ideas.slice(0, 1)];
@@ -281,7 +282,7 @@ export function nutritionAdvice(ctx) {
     headline = 'Dinner';
     lines.push(
       totalMi >= 3
-        ? `You've covered ${totalMi.toFixed(1)} miles today. Make dinner a proper meal with carbohydrates and protein.`
+        ? `You've covered ${wordDist(totalMi)} today. Make dinner a proper meal with carbohydrates and protein.`
         : 'A balanced dinner with carbohydrates, protein and veg.'
     );
     ideas = pickIdeas({ slot: 'dinner', tags: totalMi >= 3 ? ['postrun'] : ['quick'], prefs, pantry });
@@ -334,7 +335,7 @@ export function recoveryAdvice({ doneToday = [], foodsToday = [], nowMin, prefs 
   lines.push('Drink regularly over the next few hours.');
   return {
     headline: long ? 'Recover from your long run' : 'Recover from your run',
-    summary: `${mi.toFixed(1)} mi run today${since != null && since >= 0 ? ` · finished ${since < 60 ? `${since} min` : `${Math.floor(since / 60)} h ${since % 60} min`} ago` : ''}`,
+    summary: `${fmtDist(mi)} run today${since != null && since >= 0 ? ` · finished ${since < 60 ? `${since} min` : `${Math.floor(since / 60)} h ${since % 60} min`} ago` : ''}`,
     lines,
   };
 }
@@ -370,4 +371,44 @@ export function fuellingPlan({ run, isToday, nowMin, prefs = {}, pantry = [] }) 
     headline: 'Fuel for your next run',
     steps: steps.map((s) => ({ ...s, past: isToday && s.at != null && s.at < nowMin })),
   };
+}
+
+/** The meal slot for a time of day. Used when people just type "what did you eat" without picking one. */
+export function mealForTime(min) {
+  if (min < 10.5 * 60) return 'breakfast';
+  if (min < 12 * 60) return 'snack';
+  if (min < 14.5 * 60) return 'lunch';
+  if (min < 17.5 * 60) return 'snack';
+  return 'dinner';
+}
+
+/**
+ * A short, rule-based response to a logged meal (used when the AI coach isn't available).
+ * ctx: { minsToRun, runLabel, justTrained }
+ */
+export function mealFeedback({ estimate, ctx = {} }) {
+  const t = estimate?.totals;
+  if (!t || estimate.confidence === 'none' || !(t.kcal > 0)) {
+    return "Logged. I couldn't recognise those foods, so there's no estimate — you can add numbers yourself by tapping the entry.";
+  }
+  const carbs = t.carbs || 0;
+  const protein = t.protein || 0;
+  const heavy = (t.fat || 0) >= 25;
+  const small = t.kcal < 250;
+  if (ctx.justTrained) {
+    if (carbs >= 30 && protein >= 15) return 'A good recovery meal — carbohydrate and protein after training is exactly what helps.';
+    if (protein < 15) return 'Add a source of protein soon (yoghurt, eggs, milk, beans) to help your recovery after training.';
+    return 'Good to refuel after training — some carbohydrate with it (bread, rice, fruit) would round it out.';
+  }
+  if (ctx.minsToRun != null && ctx.minsToRun > 0 && ctx.minsToRun <= 240) {
+    const when = ctx.minsToRun < 90 ? 'soon' : `in about ${Math.round(ctx.minsToRun / 30) / 2} h`;
+    if (ctx.minsToRun < 90 && (heavy || protein >= 30)) return `Your ${ctx.runLabel || 'run'} is ${when} — that's a substantial meal, so keep anything else light and easy to digest.`;
+    if (carbs >= 30) return `Good fuel with your ${ctx.runLabel || 'run'} ${when}. Sip water, and keep any extra snack small.`;
+    return `Your ${ctx.runLabel || 'run'} is ${when} — a little more carbohydrate (toast, banana, rice cakes) would help you fuel it.`;
+  }
+  if (small) return 'Logged. That is a light one — make the next meal a proper one with carbohydrate and protein.';
+  if (protein >= 20 && carbs >= 30) return 'Nicely balanced — carbohydrate and protein together keep energy steady.';
+  if (protein < 10) return 'Fairly light on protein — an egg, yoghurt or some beans at your next meal would balance it.';
+  if (carbs < 20) return 'Light on carbohydrate — on active days it helps to include some at the next meal or snack.';
+  return 'Logged. Keep meals regular through the day and you will be well fuelled.';
 }

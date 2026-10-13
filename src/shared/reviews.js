@@ -1,5 +1,6 @@
 // Daily, weekly and end-of-challenge reviews, computed from logged data only.
 import { addDays, startOfWeek, weekday, DAY_NAMES } from './dates.js';
+import { dist, fmtDist, wordDist, toUnit, fromUnit } from './units.js';
 import { challengeActivities, challengeStatus, round1, sumMiles, longestRun, weeklyTotals } from './calc.js';
 import { dayNutritionTotals } from './nutrition.js';
 import { wellbeingByDate } from './insights.js';
@@ -22,7 +23,7 @@ export function dailyReview({ date, activities, foods, energyLogs, recommendatio
     else if (rec.status === 'skipped') toPlan = 'You skipped the recommendation — the plan has moved that distance elsewhere.';
     else if (rec.status === 'modified') toPlan = 'You did something different from the plan — totals and future sessions have updated.';
     else if (planned && run + walk >= planned * 0.9) toPlan = 'Broadly to plan.';
-    else if (planned) toPlan = `Less than planned (${round1(run + walk)} of ~${planned} mi suggested).`;
+    else if (planned) toPlan = `Less than planned (${fmtDist(run + walk)} of ~${fmtDist(planned)} suggested).`;
   }
   return {
     date,
@@ -58,7 +59,7 @@ export function challengeReview({ challenge, activities, energyLogs, foods, cal,
   const bestWd = byWd.map((m, i) => [i, m]).sort((a, b) => b[1] - a[1])[0];
   const P = personalOf(cal);
   const extWalks = P.extraWalk.enabled
-    ? real.filter((a) => a.type === 'walk' && a.distanceMi >= Math.max(1, Number(P.extraWalk.mi) * 0.9) && resolveDay(a.date, cal).dayType === 'office').length
+    ? real.filter((a) => a.type === 'walk' && a.distanceMi >= Math.max(1, Number(P.extraWalk.mi) * 0.9) && resolveDay(a.date, cal).base === 'office').length
     : 0;
   const wb = wellbeingByDate(energyLogs.filter((e) => e.date >= challenge.startDate && e.date <= challenge.endDate));
   const energies = Object.values(wb).map((v) => v.energy).filter((x) => x != null);
@@ -67,16 +68,16 @@ export function challengeReview({ challenge, activities, energyLogs, foods, cal,
   const fuelled = foods.filter((f) => f.date >= challenge.startDate && f.date <= challenge.endDate);
 
   const worked = [];
-  if (bestType) worked.push(`${typeName(bestType[0], cal.personal, 'plural')} produced the most distance (${round1(bestType[1])} mi).`);
+  if (bestType) worked.push(`${typeName(bestType[0], cal, 'plural')} produced the most distance (${fmtDist(bestType[1])}).`);
   if (bestWd && bestWd[1] > 0) worked.push(`${DAY_NAMES[bestWd[0]]} was your strongest day of the week.`);
   if (extWalks) worked.push(`${personalOf(cal).extraWalk.label} added distance on ${extWalks} office day${extWalks === 1 ? '' : 's'}.`);
   const strongest = [...weeks].sort((a, b) => b.total - a.total)[0];
 
   const next = [];
   const ended = (today || '9999-12-31') > challenge.endDate;
-  if (!ended && !st.achieved) next.push(`Still in progress — ${round1(st.remainingMi)} miles to go. Suggestions for the next challenge appear once this one ends.`);
-  else if (st.achieved) next.push(`You hit ${st.target} miles. A similar target with the same anchor sessions is very achievable; consider +10% only if energy stayed good.`);
-  else next.push(`You reached ${round1(st.totalMi)} of ${st.target} miles. A target around ${Math.round(st.totalMi / 5) * 5 + 5} miles may be more realistic for a similar month.`);
+  if (!ended && !st.achieved) next.push(`Still in progress — ${wordDist(st.remainingMi)} to go. Suggestions for the next challenge appear once this one ends.`);
+  else if (st.achieved) next.push(`You hit ${wordDist(st.target)}. A similar target with the same anchor sessions is very achievable; consider +10% only if energy stayed good.`);
+  else next.push(`You reached ${dist(st.totalMi)} of ${wordDist(st.target)}. A target around ${wordDist(fromUnit(Math.round(toUnit(st.totalMi) / 5) * 5 + 5))} may be more realistic for a similar month.`);
   if (energies.length >= 5 && avg(energies) < 5.5) next.push('Average energy was on the low side — build in more planned rest days next time.');
 
   return {
@@ -90,7 +91,7 @@ export function challengeReview({ challenge, activities, energyLogs, foods, cal,
     runCount: real.filter((a) => a.type === 'run').length,
     strongestWeek: strongest,
     worked,
-    bestDayType: bestType ? { label: typeName(bestType[0], cal.personal, 'plural'), mi: round1(bestType[1]) } : null,
+    bestDayType: bestType ? { label: typeName(bestType[0], cal, 'plural'), mi: round1(bestType[1]) } : null,
     bestWeekday: bestWd && bestWd[1] > 0 ? { name: DAY_NAMES[bestWd[0]], mi: round1(bestWd[1]) } : null,
     extendedWalks: extWalks,
     energyAvg: energies.length ? round1(avg(energies)) : null,

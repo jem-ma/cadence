@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { useStore, api, localNowString } from '../lib/store.jsx';
 import { useSheets } from '../App.jsx';
-import { Icon, Field, Banner, Seg, Sheet } from '../components/ui.jsx';
+import { Icon, Field, Banner, Seg, Sheet, UnitSeg } from '../components/ui.jsx';
 import { OtherChallenges } from './Insights.jsx';
 import { DEFAULT_TRAINING } from '../shared/planner.js';
-import { personalOf } from '../shared/schedule.js';
+import { personalOf, typeDefFor } from '../shared/schedule.js';
+import { toUnit, toMiles, wordDist } from '../shared/units.js';
+import { typeLabel } from '../shared/activities.js';
 import { formatDate } from '../shared/dates.js';
 
 export function SettingsSheet({ onClose }) {
-  const { integrations } = useStore();
+  const { integrations, units } = useStore();
   return (
     <Sheet title="Settings" onClose={onClose} wide>
       <div className="stack" style={{ gap: 14 }}>
@@ -16,8 +18,8 @@ export function SettingsSheet({ onClose }) {
         <OtherChallenges />
         <Account />
         <Profile />
-        <MyWeek />
-        <Training />
+        <MyWeek key={`w-${units}`} />
+        <Training key={`t-${units}`} />
         <NutritionPrefs />
         <AiCard status={integrations?.ai} />
         <DataCard />
@@ -37,7 +39,7 @@ function ChallengeSettings() {
       </div>
       {challenge && (
         <p className="small">
-          <strong>{challenge.name}</strong> — {challenge.targetMiles} miles, {formatDate(challenge.startDate, { short: true })} to {formatDate(challenge.endDate, { short: true })} ({(challenge.activityTypes || []).join(' + ')})
+          <strong>{challenge.name}</strong> — {wordDist(challenge.targetMiles)}, {formatDate(challenge.startDate, { short: true })} to {formatDate(challenge.endDate, { short: true })} ({(challenge.activityTypes || []).map(typeLabel).join(', ')})
         </p>
       )}
       <div className="row">
@@ -56,13 +58,22 @@ function ChallengeSettings() {
 }
 
 function Profile() {
-  const { profile, actions, notify } = useStore();
+  const { profile, actions, notify, units } = useStore();
   const [name, setName] = useState(profile.name || '');
   return (
     <section className="card stack">
       <h3>Profile</h3>
       <Field label="Your first name (optional)">
         <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="Distance unit" hint="Applies everywhere in the app. Your logged distances are never changed — only how they’re shown.">
+        <UnitSeg
+          value={units}
+          onChange={async (u) => {
+            await actions.update('profile', profile.id, { units: u });
+            notify(`Distances now shown in ${u === 'km' ? 'kilometres' : 'miles'}`);
+          }}
+        />
       </Field>
       <div>
         <button
@@ -149,48 +160,63 @@ function Account() {
 }
 
 function MyWeek() {
-  const { profile, actions, notify } = useStore();
+  const { profile, cal, actions, notify, units } = useStore();
   const P = personalOf(profile);
-  const [v, setV] = useState({ place: P.runFromPlace, commute: P.commuteWalkMi, extra: { ...P.extraWalk } });
+  const bases = new Set(Object.values(cal.weekTemplate || {}).map((d) => typeDefFor(d.dayType, cal).base));
+  const usesNans = bases.has('nans');
+  const usesOffice = bases.has('office');
+  const [v, setV] = useState({ place: P.runFromPlace, commute: String(Math.round(toUnit(P.commuteWalkMi) * 100) / 100), extra: { ...P.extraWalk, mi: String(Math.round(toUnit(P.extraWalk.mi) * 100) / 100) } });
+  if (!usesNans && !usesOffice) return null;
   return (
     <section className="card stack">
       <h3>Your week details</h3>
       <p className="small muted" style={{ margin: 0 }}>
-        Used by the planner on office and run-straight-after days. Times for each day are in the calendar’s weekly pattern.
+        Used by the planner on {usesOffice ? 'office days' : ''}
+        {usesOffice && usesNans ? ' and ' : ''}
+        {usesNans ? 'run-straight-after days' : ''}. Times for each day are in the calendar’s weekly pattern.
       </p>
       <div className="form-grid">
-        <Field label="Where you are on run-straight-after days" className="full">
-          <input className="input" value={v.place} onChange={(e) => setV({ ...v, place: e.target.value })} placeholder="work" />
-        </Field>
-        <Field label="Commute walking on office days (mi)" hint="0 if none">
-          <input className="input" inputMode="decimal" value={v.commute} onChange={(e) => setV({ ...v, commute: e.target.value })} />
-        </Field>
+        {usesNans && (
+          <Field label="Where you are on run-straight-after days" className="full">
+            <input className="input" value={v.place} onChange={(e) => setV({ ...v, place: e.target.value })} placeholder="work" />
+          </Field>
+        )}
+        {usesOffice && (
+          <Field label={`Commute walking on office days (${units})`} hint="0 if none">
+            <input className="input" inputMode="decimal" value={v.commute} onChange={(e) => setV({ ...v, commute: e.target.value.replace(',', '.') })} />
+          </Field>
+        )}
       </div>
-      <label className="row small">
-        <input type="checkbox" checked={v.extra.enabled} onChange={(e) => setV({ ...v, extra: { ...v.extra, enabled: e.target.checked } })} /> Offer a longer walk on office days
-      </label>
-      {v.extra.enabled && (
-        <div className="form-grid">
-          <Field label="Describe it" className="full">
-            <input className="input" value={v.extra.label} onChange={(e) => setV({ ...v, extra: { ...v.extra, label: e.target.value } })} />
-          </Field>
-          <Field label="Extra miles">
-            <input className="input" inputMode="decimal" value={v.extra.mi} onChange={(e) => setV({ ...v, extra: { ...v.extra, mi: e.target.value } })} />
-          </Field>
-          <Field label="Takes (minutes)">
-            <input className="input" inputMode="numeric" value={v.extra.min} onChange={(e) => setV({ ...v, extra: { ...v.extra, min: e.target.value } })} />
-          </Field>
-        </div>
+      {usesOffice && (
+        <>
+          <label className="row small">
+            <input type="checkbox" checked={v.extra.enabled} onChange={(e) => setV({ ...v, extra: { ...v.extra, enabled: e.target.checked } })} /> Offer a longer walk on office days
+          </label>
+          {v.extra.enabled && (
+            <div className="form-grid">
+              <Field label="Describe it" className="full">
+                <input className="input" value={v.extra.label} onChange={(e) => setV({ ...v, extra: { ...v.extra, label: e.target.value } })} />
+              </Field>
+              <Field label={`Extra distance (${units})`}>
+                <input className="input" inputMode="decimal" value={v.extra.mi} onChange={(e) => setV({ ...v, extra: { ...v.extra, mi: e.target.value.replace(',', '.') } })} />
+              </Field>
+              <Field label="Takes (minutes)">
+                <input className="input" inputMode="numeric" value={v.extra.min} onChange={(e) => setV({ ...v, extra: { ...v.extra, min: e.target.value } })} />
+              </Field>
+            </div>
+          )}
+        </>
       )}
       <div>
         <button
           className="btn small primary"
           onClick={async () => {
             const commute = Number(v.commute) || 0;
-            const mi = Number(v.extra.mi) || 0;
-            if (commute < 0 || mi < 0) return notify('Distances can’t be negative', 'error');
+            const extraDist = Number(v.extra.mi) || 0;
+            if (commute < 0 || extraDist < 0) return notify('Distances can’t be negative', 'error');
+            const mi = toMiles(extraDist, units);
             await actions.update('profile', profile.id, {
-              personal: { runFromPlace: v.place.trim() || 'work', commuteWalkMi: commute, extraWalk: { ...v.extra, mi, min: Number(v.extra.min) || Math.round(mi * 20), label: v.extra.label.trim() || 'Longer walk home' } },
+              personal: { runFromPlace: v.place.trim() || 'work', commuteWalkMi: toMiles(commute, units), extraWalk: { ...v.extra, mi, min: Number(v.extra.min) || Math.round(mi * 20), label: v.extra.label.trim() || 'Longer walk home' } },
             });
             notify('Saved — your plan has been updated');
           }}
@@ -202,12 +228,18 @@ function MyWeek() {
   );
 }
 
+const DIST_KEYS = ['easyRunMi', 'lunchRunMi', 'nansRunMi', 'easyRunMaxMi', 'longRunMinMi', 'longRunMaxMi'];
+const PACE_KEYS = ['runPaceMin', 'walkPaceMin'];
+
 function Training() {
-  const { profile, actions, notify } = useStore();
-  const [t, setT] = useState({ ...DEFAULT_TRAINING, ...(profile.training || {}) });
+  const { profile, cal, actions, notify, units } = useStore();
+  const per = toUnit(1); // 1 for miles, 1.609 for km
+  const show = (k, v) => (DIST_KEYS.includes(k) ? Math.round(toUnit(v) * 100) / 100 : PACE_KEYS.includes(k) ? Math.round((v / per) * 100) / 100 : v);
+  const [t, setT] = useState(() => Object.fromEntries(Object.entries({ ...DEFAULT_TRAINING, ...(profile.training || {}) }).map(([k, v]) => [k, typeof v === 'number' ? show(k, v) : v])));
+  const usesNans = Object.values(cal.weekTemplate || {}).some((d) => typeDefFor(d.dayType, cal).base === 'nans');
   const num = (k, label, hint) => (
     <Field label={label} hint={hint}>
-      <input className="input" inputMode="decimal" value={t[k]} onChange={(e) => setT({ ...t, [k]: e.target.value })} />
+      <input className="input" inputMode="decimal" value={t[k]} onChange={(e) => setT({ ...t, [k]: e.target.value.replace(',', '.') })} />
     </Field>
   );
   return (
@@ -216,22 +248,26 @@ function Training() {
       <p className="small muted" style={{ margin: 0 }}>
         The planner uses these as comfortable defaults and never jumps far beyond your recent runs.
       </p>
-      <div className="form-grid">
-        {num('easyRunMi', 'Easy run (mi)')}
-        {num('lunchRunMi', 'Lunchtime run (mi)')}
-        {num('nansRunMi', `Run from ${personalOf(profile).runFromPlace} (mi)`)}
-        {num('easyRunMaxMi', 'Max weekday run (mi)')}
-        {num('longRunMinMi', 'Long run from (mi)')}
-        {num('longRunMaxMi', 'Long run up to (mi)')}
-        {num('maxRunDaysPerWeek', 'Max run days / week')}
-        {num('maxConsecutiveRunDays', 'Max days in a row')}
-        {num('runPaceMin', 'Default run pace (min/mi)', 'Replaced by your logged pace')}
-        {num('walkPaceMin', 'Default walk pace (min/mi)')}
-      </div>
-      <label className="row small">
-        <input type="checkbox" checked={t.allowExtendedWalks} onChange={(e) => setT({ ...t, allowExtendedWalks: e.target.checked })} />
-        Suggest “{personalOf(profile).extraWalk.label.toLowerCase()}” on office days
-      </label>
+      {(
+        <div className="form-grid">
+          {num('easyRunMi', `Easy run (${units})`)}
+          {num('lunchRunMi', `Lunchtime run (${units})`)}
+          {usesNans && num('nansRunMi', `Run from ${personalOf(profile).runFromPlace} (${units})`)}
+          {num('easyRunMaxMi', `Max weekday run (${units})`)}
+          {num('longRunMinMi', `Long run from (${units})`)}
+          {num('longRunMaxMi', `Long run up to (${units})`)}
+          {num('maxRunDaysPerWeek', 'Max run days / week')}
+          {num('maxConsecutiveRunDays', 'Max days in a row')}
+          {num('runPaceMin', `Default run pace (min/${units})`, 'Replaced by your logged pace')}
+          {num('walkPaceMin', `Default walk pace (min/${units})`)}
+        </div>
+      )}
+      {personalOf(profile).extraWalk.enabled && (
+        <label className="row small">
+          <input type="checkbox" checked={t.allowExtendedWalks} onChange={(e) => setT({ ...t, allowExtendedWalks: e.target.checked })} />
+          Suggest “{personalOf(profile).extraWalk.label.toLowerCase()}” on office days
+        </label>
+      )}
       <div>
         <button
           className="btn small primary"
@@ -239,7 +275,10 @@ function Training() {
             const clean = Object.fromEntries(Object.entries(t).map(([k, v]) => [k, typeof v === 'boolean' ? v : Number(v)]));
             if (Object.values(clean).some((v) => typeof v === 'number' && !(v > 0))) return notify('All values must be positive numbers', 'error');
             if (clean.longRunMaxMi < clean.longRunMinMi) return notify('Long-run range is the wrong way round', 'error');
-            await actions.update('profile', profile.id, { training: clean });
+            const stored = Object.fromEntries(
+              Object.entries(clean).map(([k, v]) => [k, typeof v !== 'number' ? v : DIST_KEYS.includes(k) ? toMiles(v, units) : PACE_KEYS.includes(k) ? Math.round(v * per * 100) / 100 : v])
+            );
+            await actions.update('profile', profile.id, { training: stored });
             notify('Training preferences saved — plan updated');
           }}
         >

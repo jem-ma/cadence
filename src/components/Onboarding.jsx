@@ -1,20 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useStore, api } from '../lib/store.jsx';
-import { Field, Seg, Banner } from './ui.jsx';
+import { Field, Banner, ActivityPills, UnitSeg } from './ui.jsx';
 import { Logo } from './Auth.jsx';
-import { addDays, endOfMonth, startOfMonth, MONTHS, parseDate, DAY_NAMES } from '../shared/dates.js';
-import { defaultWeekTemplate, DEFAULT_PERSONAL } from '../shared/schedule.js';
+import { DayTypeEditor } from './DayTypeEditor.jsx';
+import { addDays, endOfMonth, formatDate, startOfMonth, startOfWeek, MONTHS, parseDate, DAY_NAMES } from '../shared/dates.js';
+import { defaultWeekTemplate, DEFAULT_PERSONAL, PLACEHOLDER_DAY_TYPES, typeDefFor } from '../shared/schedule.js';
 import { DEFAULT_TRAINING } from '../shared/planner.js';
+import { ACTIVITY_TYPES, ACTIVITY_ORDER, isDistanceType } from '../shared/activities.js';
+import { toMiles, toUnit } from '../shared/units.js';
+import { openingBalanceDate } from '../shared/calc.js';
 
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
-const TYPE_CHOICES = [
-  { value: 'office', label: 'Office / commute day', help: 'Long day away; walking may be part of the commute.' },
-  { value: 'nans', label: 'Run-straight-after day', help: 'Working somewhere you can run home or run from afterwards.' },
-  { value: 'wfh', label: 'Work from home', help: 'Before work, lunchtime or after-work windows.' },
-  { value: 'weekend', label: 'Weekend / day off', help: 'Room for a longer run.' },
-  { value: 'free', label: 'Free day', help: 'Mostly flexible.' },
-  { value: 'off', label: 'No exercise', help: 'Never plan anything on this day.' },
-];
+const DEFAULT_WEEK = { 1: 'wfh', 2: 'wfh', 3: 'wfh', 4: 'wfh', 5: 'wfh', 6: 'weekend', 0: 'weekend' };
+const num = (v) => (v === '' || v == null || isNaN(Number(v)) ? 0 : Number(v));
+const shown = (mi, unit) => String(Math.round(toUnit(mi, unit) * 10) / 10);
 
 /** First-run setup for a new account. Everything here can be changed later. */
 export function Onboarding() {
@@ -22,75 +21,113 @@ export function Onboarding() {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const monthStart = today.slice(8) > '20' ? startOfMonth(addDays(endOfMonth(today), 1)) : startOfMonth(today);
+
+  const [unit, setUnit] = useState('mi');
   const [c, setC] = useState({
-    name: `${MONTHS[parseDate(monthStart).getMonth()]} ${100}`,
-    targetMiles: '100',
+    name: `${MONTHS[parseDate(monthStart).getMonth()]} 100`,
+    target: '100',
     startDate: monthStart,
     endDate: endOfMonth(monthStart),
-    run: true,
-    walk: true,
-    doneRun: '',
-    doneWalk: '',
+    types: ['walk', 'run'],
+    done: {},
   });
-  const [week, setWeek] = useState({ 1: 'wfh', 2: 'wfh', 3: 'wfh', 4: 'wfh', 5: 'wfh', 6: 'weekend', 0: 'weekend' });
+  const [dayTypes, setDayTypes] = useState(PLACEHOLDER_DAY_TYPES.map((t) => ({ ...t })));
+  const [week, setWeek] = useState(DEFAULT_WEEK);
   const [personal, setPersonal] = useState({ ...DEFAULT_PERSONAL, extraWalk: { ...DEFAULT_PERSONAL.extraWalk } });
-  const [t, setT] = useState({ easyRunMi: DEFAULT_TRAINING.easyRunMi, longRunMinMi: DEFAULT_TRAINING.longRunMinMi, longRunMaxMi: DEFAULT_TRAINING.longRunMaxMi, maxRunDaysPerWeek: DEFAULT_TRAINING.maxRunDaysPerWeek });
+  const [t, setT] = useState({ easyRunMi: shown(DEFAULT_TRAINING.easyRunMi, 'mi'), longRunMinMi: shown(DEFAULT_TRAINING.longRunMinMi, 'mi'), longRunMaxMi: shown(DEFAULT_TRAINING.longRunMaxMi, 'mi'), maxRunDaysPerWeek: String(DEFAULT_TRAINING.maxRunDaysPerWeek) });
 
-  const uses = useMemo(() => new Set(Object.values(week)), [week]);
+  const runCounted = c.types.includes('run');
+  const totalSteps = runCounted ? 3 : 2;
+  const distanceTypes = ACTIVITY_ORDER.filter((x) => c.types.includes(x) && isDistanceType(x));
   const startedAlready = c.startDate < today;
+
+  // Distance done before using Cadence goes on the last day of the previous week, so this week starts clear.
+  const balanceDate = openingBalanceDate(today, c.startDate);
+  const balanceNote =
+    balanceDate === addDays(startOfWeek(today), -1)
+      ? `This is added to the end of last week (${formatDate(balanceDate, { short: true })}), so this week starts clear.`
+      : `Your challenge began this week, so this is dated its first day (${formatDate(balanceDate, { short: true })}).`;
+
+  const usedTypes = [...new Set(Object.values(week))].map((id) => typeDefFor(id, { dayTypes, personal }));
+  const hasOffice = usedTypes.some((d) => d.base === 'office');
+
+  // Switching unit relabels what you've typed (100 stays 100, now km). Only the suggested
+  // defaults — run and walk distances — are converted, so "3.5 mi" becomes "5.6 km".
+  const changeUnit = (u) => {
+    if (u === unit) return;
+    const conv = (v) => (v === '' || isNaN(Number(v)) ? v : String(Math.round(toUnit(toMiles(Number(v), unit), u) * 10) / 10));
+    setT((s) => ({ ...s, easyRunMi: conv(s.easyRunMi), longRunMinMi: conv(s.longRunMinMi), longRunMaxMi: conv(s.longRunMaxMi) }));
+    setPersonal((p) => ({ ...p, commuteWalkMi: conv(String(p.commuteWalkMi)), extraWalk: { ...p.extraWalk, mi: conv(String(p.extraWalk.mi)) } }));
+    setUnit(u);
+  };
+
+  const updateTypes = (next) => {
+    setDayTypes(next);
+    // days that used a removed type fall back to the first remaining one
+    if (next.length) setWeek((w) => Object.fromEntries(Object.entries(w).map(([wd, id]) => [wd, next.some((x) => x.id === id) ? id : next[0].id])));
+  };
 
   const next = () => {
     if (step === 0) {
       if (!c.name.trim()) return notify('Give your challenge a name', 'error');
-      if (!(Number(c.targetMiles) > 0)) return notify('Set a target distance', 'error');
+      if (!(num(c.target) > 0)) return notify('Set a target distance', 'error');
       if (c.endDate < c.startDate) return notify('The end date must be after the start', 'error');
-      if (!c.run && !c.walk) return notify('Choose running, walking or both', 'error');
+      if (!distanceTypes.length) return notify('Choose at least one activity that has a distance (walking, running, cycling or swimming)', 'error');
     }
+    if (step === 1 && dayTypes.length === 0) return notify('Add at least one day type', 'error');
     setStep(step + 1);
   };
 
   const finish = async () => {
-    const num = (v) => (v === '' || v == null ? 0 : Number(v));
-    if ([t.easyRunMi, t.longRunMinMi, t.longRunMaxMi, t.maxRunDaysPerWeek].some((v) => !(Number(v) > 0))) return notify('Running preferences need positive numbers', 'error');
+    if (runCounted && [t.easyRunMi, t.longRunMinMi, t.longRunMaxMi, t.maxRunDaysPerWeek].some((v) => !(num(v) > 0))) return notify('Running preferences need positive numbers', 'error');
+    if (runCounted && num(t.longRunMaxMi) < num(t.longRunMinMi)) return notify('“Longer runs up to” must be at least “from”', 'error');
     setBusy(true);
     try {
       const challengeId = `ch-${c.startDate}-${Date.now().toString(36)}`;
       await actions.create('challenges', {
         id: challengeId,
         name: c.name.trim(),
-        targetMiles: Number(c.targetMiles),
+        targetMiles: toMiles(num(c.target), unit),
         startDate: c.startDate,
         endDate: c.endDate,
-        activityTypes: [c.run && 'run', c.walk && 'walk'].filter(Boolean),
+        activityTypes: ACTIVITY_ORDER.filter((x) => c.types.includes(x)),
       });
-      // Distance done before using Cadence becomes an "opening balance", dated the day before today.
-      const balanceDate = startedAlready ? (addDays(today, -1) < c.startDate ? c.startDate : addDays(today, -1)) : c.startDate;
-      for (const [type, mi] of [['run', num(c.doneRun)], ['walk', num(c.doneWalk)]]) {
-        if (mi > 0)
-          await actions.create('activities', {
-            id: `baseline-${type}-${challengeId}`,
-            date: balanceDate,
-            type,
-            distanceMi: mi,
-            durationMin: null,
-            notes: 'Opening balance: distance completed before using Cadence.',
-            source: 'baseline',
-            isBaseline: true,
-            force: true,
-          });
+      if (startedAlready) {
+        for (const type of distanceTypes) {
+          const mi = toMiles(num(c.done[type]), unit);
+          if (mi > 0)
+            await actions.create('activities', {
+              id: `baseline-${type}-${challengeId}`,
+              date: balanceDate,
+              type,
+              distanceMi: mi,
+              durationMin: null,
+              notes: 'Opening balance: distance completed before using Cadence.',
+              source: 'baseline',
+              isBaseline: true,
+              force: true,
+            });
+        }
       }
       const P = {
-        runFromPlace: personal.runFromPlace.trim() || 'work',
-        commuteWalkMi: num(personal.commuteWalkMi),
-        extraWalk: { ...personal.extraWalk, mi: num(personal.extraWalk.mi), min: num(personal.extraWalk.min) || Math.round(num(personal.extraWalk.mi) * 20) },
+        runFromPlace: DEFAULT_PERSONAL.runFromPlace,
+        commuteWalkMi: hasOffice ? toMiles(num(personal.commuteWalkMi), unit) : 0,
+        extraWalk: {
+          ...personal.extraWalk,
+          enabled: hasOffice && personal.extraWalk.enabled,
+          mi: toMiles(num(personal.extraWalk.mi), unit),
+          min: num(personal.extraWalk.min) || Math.round(toMiles(num(personal.extraWalk.mi), unit) * 20),
+        },
       };
-      await actions.update('calendar', 'weekTemplate', { template: defaultWeekTemplate(week, P) });
-      await actions.update('profile', profile.id, {
-        personal: P,
-        training: { ...(profile.training || DEFAULT_TRAINING), ...Object.fromEntries(Object.entries(t).map(([k, v]) => [k, Number(v)])) },
-        activeChallengeId: challengeId,
-        onboarded: true,
-      });
+      await actions.update('calendar', 'weekTemplate', { template: defaultWeekTemplate(week, { personal: P, dayTypes }) });
+      const training = { ...(profile.training || DEFAULT_TRAINING) };
+      if (runCounted) {
+        training.easyRunMi = toMiles(num(t.easyRunMi), unit);
+        training.longRunMinMi = toMiles(num(t.longRunMinMi), unit);
+        training.longRunMaxMi = toMiles(num(t.longRunMaxMi), unit);
+        training.maxRunDaysPerWeek = num(t.maxRunDaysPerWeek);
+      }
+      await actions.update('profile', profile.id, { units: unit, personal: P, dayTypes, training, activeChallengeId: challengeId, onboarded: true });
       await actions.reload();
       notify('All set — here is your plan');
     } catch (e) {
@@ -114,19 +151,22 @@ export function Onboarding() {
 
   const setPW = (patch) => setPersonal((p) => ({ ...p, ...patch }));
   const setEW = (patch) => setPersonal((p) => ({ ...p, extraWalk: { ...p.extraWalk, ...patch } }));
+  const isLast = step === totalSteps - 1;
 
   return (
     <div className="onboard">
       <div className="row" style={{ gap: 10, marginBottom: 6 }}>
         <Logo />
-        <span className="small muted">Step {step + 1} of 3</span>
+        <span className="small muted">
+          Step {step + 1} of {totalSteps}
+        </span>
       </div>
       <h1 style={{ marginBottom: 6 }}>{['Your challenge', 'Your usual week', 'Your running'][step]}</h1>
       <p className="muted" style={{ marginTop: 0 }}>
         {
           [
-            'Set the distance you’re aiming for. You can change any of this later.',
-            'Cadence plans sessions around your real week. Pick what each day usually looks like — exact times can be fine-tuned later in the calendar.',
+            'Set the distance you’re aiming for and what counts towards it. You can change any of this later.',
+            'Make a list of the kinds of day you have, then pick one for each day of the week. Exact times can be fine-tuned later in the calendar.',
             'These keep suggestions comfortable. The planner never jumps far beyond what you’ve recently done.',
           ][step]
         }
@@ -135,23 +175,20 @@ export function Onboarding() {
       <div className="card stack" style={{ marginTop: 14 }}>
         {step === 0 && (
           <>
+            <Field label="Challenge name">
+              <input className="input" value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} />
+            </Field>
+            <Field label="Target">
+              <div className="field-row">
+                <input className="input" inputMode="decimal" value={c.target} onChange={(e) => setC({ ...c, target: e.target.value.replace(',', '.') })} aria-label="Target distance" />
+                <UnitSeg value={unit} onChange={changeUnit} />
+              </div>
+            </Field>
+            <Field label="What counts" hint="Pick as many as apply.">
+              <ActivityPills value={c.types} onChange={(types) => setC({ ...c, types })} />
+              {c.types.includes('box') && <span className="hint">Boxing is tracked by time, so it counts as an active day but doesn’t add to the distance target.</span>}
+            </Field>
             <div className="form-grid">
-              <Field label="Challenge name" className="full">
-                <input className="input" value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} />
-              </Field>
-              <Field label="Target (miles)">
-                <input className="input" inputMode="decimal" value={c.targetMiles} onChange={(e) => setC({ ...c, targetMiles: e.target.value })} />
-              </Field>
-              <Field label="What counts">
-                <div className="row" style={{ minHeight: 42 }}>
-                  <label className="row small">
-                    <input type="checkbox" checked={c.run} onChange={(e) => setC({ ...c, run: e.target.checked })} /> Running
-                  </label>
-                  <label className="row small">
-                    <input type="checkbox" checked={c.walk} onChange={(e) => setC({ ...c, walk: e.target.checked })} /> Walking
-                  </label>
-                </div>
-              </Field>
               <Field label="Start">
                 <input className="input" type="date" value={c.startDate} onChange={(e) => setC({ ...c, startDate: e.target.value })} />
               </Field>
@@ -159,21 +196,21 @@ export function Onboarding() {
                 <input className="input" type="date" value={c.endDate} onChange={(e) => setC({ ...c, endDate: e.target.value })} />
               </Field>
             </div>
-            {startedAlready && (
-              <div className="form-grid">
-                <p className="small full" style={{ margin: 0 }}>
-                  Already done some distance since {c.startDate.slice(8)} {MONTHS[parseDate(c.startDate).getMonth()]}? Add it so your totals start in the right place.
-                </p>
-                {c.run && (
-                  <Field label="Running so far (mi)">
-                    <input className="input" inputMode="decimal" value={c.doneRun} onChange={(e) => setC({ ...c, doneRun: e.target.value })} placeholder="0" />
-                  </Field>
-                )}
-                {c.walk && (
-                  <Field label="Walking so far (mi)">
-                    <input className="input" inputMode="decimal" value={c.doneWalk} onChange={(e) => setC({ ...c, doneWalk: e.target.value })} placeholder="0" />
-                  </Field>
-                )}
+            {startedAlready && distanceTypes.length > 0 && (
+              <div className="stack" style={{ gap: 8 }}>
+                <div>
+                  <div className="small" style={{ fontWeight: 500 }}>
+                    Already done some distance this challenge?
+                  </div>
+                  <div className="tiny faint">{balanceNote}</div>
+                </div>
+                <div className="form-grid">
+                  {distanceTypes.map((type) => (
+                    <Field key={type} label={`${ACTIVITY_TYPES[type].label} so far (${unit})`}>
+                      <input className="input" inputMode="decimal" placeholder="0" value={c.done[type] ?? ''} onChange={(e) => setC({ ...c, done: { ...c.done, [type]: e.target.value.replace(',', '.') } })} />
+                    </Field>
+                  ))}
+                </div>
               </div>
             )}
           </>
@@ -181,29 +218,31 @@ export function Onboarding() {
 
         {step === 1 && (
           <>
+            <Field label="Your day types" hint="These are suggestions. Remove any you don’t need and add your own. New ones start as a flexible day.">
+              <DayTypeEditor types={dayTypes} onChange={updateTypes} />
+            </Field>
+            <hr className="sep" style={{ margin: '2px 0' }} />
+            <div className="small" style={{ fontWeight: 500 }}>
+              What is each day of the week usually?
+            </div>
             <div className="week-picker">
               {WEEK_ORDER.map((wd) => (
                 <label key={wd} className="week-pick">
                   <span className="wp-day">{DAY_NAMES[wd]}</span>
-                  <select className="input" value={week[wd]} onChange={(e) => setWeek({ ...week, [wd]: e.target.value })}>
-                    {TYPE_CHOICES.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
+                  <select className="input" value={week[wd]} onChange={(e) => setWeek({ ...week, [wd]: e.target.value })} disabled={!dayTypes.length}>
+                    {dayTypes.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.label}
                       </option>
                     ))}
                   </select>
                 </label>
               ))}
             </div>
-            {uses.has('nans') && (
-              <Field label="Where are you on run-straight-after days?" hint="Used in your plan, e.g. “Run from the office” or “Run from Mum’s”.">
-                <input className="input" value={personal.runFromPlace} onChange={(e) => setPW({ runFromPlace: e.target.value })} placeholder="work" />
-              </Field>
-            )}
-            {uses.has('office') && (
+            {hasOffice && (
               <>
-                <Field label="Walking you usually do as part of an office-day commute (miles)" hint="Counts towards your challenge when you log it. Leave at 0 if none.">
-                  <input className="input" inputMode="decimal" value={personal.commuteWalkMi} onChange={(e) => setPW({ commuteWalkMi: e.target.value })} />
+                <Field label={`Walking you usually do as part of an office-day commute (${unit})`} hint="Counts towards your challenge when you log it. Leave at 0 if none.">
+                  <input className="input" inputMode="decimal" value={personal.commuteWalkMi} onChange={(e) => setPW({ commuteWalkMi: e.target.value.replace(',', '.') })} />
                 </Field>
                 <label className="row small">
                   <input type="checkbox" checked={personal.extraWalk.enabled} onChange={(e) => setEW({ enabled: e.target.checked })} /> On office days I could add a longer walk (e.g. get off a stop early)
@@ -213,8 +252,8 @@ export function Onboarding() {
                     <Field label="Describe it" className="full">
                       <input className="input" value={personal.extraWalk.label} onChange={(e) => setEW({ label: e.target.value })} placeholder="Walk home from two stops early" />
                     </Field>
-                    <Field label="Extra miles">
-                      <input className="input" inputMode="decimal" value={personal.extraWalk.mi} onChange={(e) => setEW({ mi: e.target.value })} />
+                    <Field label={`Extra distance (${unit})`}>
+                      <input className="input" inputMode="decimal" value={personal.extraWalk.mi} onChange={(e) => setEW({ mi: e.target.value.replace(',', '.') })} />
                     </Field>
                     <Field label="Takes (minutes)">
                       <input className="input" inputMode="numeric" value={personal.extraWalk.min} onChange={(e) => setEW({ min: e.target.value })} />
@@ -223,27 +262,22 @@ export function Onboarding() {
                 )}
               </>
             )}
-            <p className="tiny faint" style={{ margin: 0 }}>
-              {TYPE_CHOICES.filter((o) => uses.has(o.value))
-                .map((o) => `${o.label}: ${o.help}`)
-                .join(' ')}
-            </p>
           </>
         )}
 
         {step === 2 && (
           <div className="form-grid">
-            <Field label="A comfortable easy run (mi)">
-              <input className="input" inputMode="decimal" value={t.easyRunMi} onChange={(e) => setT({ ...t, easyRunMi: e.target.value })} />
+            <Field label={`A comfortable easy run (${unit})`}>
+              <input className="input" inputMode="decimal" value={t.easyRunMi} onChange={(e) => setT({ ...t, easyRunMi: e.target.value.replace(',', '.') })} />
             </Field>
             <Field label="Most run days in a week">
               <input className="input" inputMode="numeric" value={t.maxRunDaysPerWeek} onChange={(e) => setT({ ...t, maxRunDaysPerWeek: e.target.value })} />
             </Field>
-            <Field label="Longer runs from (mi)">
-              <input className="input" inputMode="decimal" value={t.longRunMinMi} onChange={(e) => setT({ ...t, longRunMinMi: e.target.value })} />
+            <Field label={`Longer runs from (${unit})`}>
+              <input className="input" inputMode="decimal" value={t.longRunMinMi} onChange={(e) => setT({ ...t, longRunMinMi: e.target.value.replace(',', '.') })} />
             </Field>
-            <Field label="Longer runs up to (mi)">
-              <input className="input" inputMode="decimal" value={t.longRunMaxMi} onChange={(e) => setT({ ...t, longRunMaxMi: e.target.value })} />
+            <Field label={`Longer runs up to (${unit})`}>
+              <input className="input" inputMode="decimal" value={t.longRunMaxMi} onChange={(e) => setT({ ...t, longRunMaxMi: e.target.value.replace(',', '.') })} />
             </Field>
           </div>
         )}
@@ -255,7 +289,7 @@ export function Onboarding() {
             </button>
           )}
           <span className="grow" />
-          {step < 2 ? (
+          {!isLast ? (
             <button className="btn primary" onClick={next}>
               Continue
             </button>

@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react';
+import { toUnit, toMiles } from '../shared/units.js';
 import { useStore } from '../lib/store.jsx';
 import { useSheets } from '../App.jsx';
 import { Sheet, Icon, Seg, Banner } from './ui.jsx';
 import { formatDate, relativeDay } from '../shared/dates.js';
 
 let rowId = 0;
+// rows hold the distance as typed, in the user's display unit
 const toRow = (s) => ({
   key: `r${rowId++}`,
   type: s.type,
   title: s.label || s.title || (s.type === 'run' ? 'Run' : 'Walk'),
-  distanceMi: String(s.distanceMi ?? ''),
+  distanceMi: s.distanceMi === '' || s.distanceMi == null ? '' : String(Math.round(toUnit(s.distanceMi) * 100) / 100),
   time: s.time || '',
   durationMin: s.durationMin || null,
 });
@@ -20,7 +22,7 @@ const toRow = (s) => ({
  * Calendar settings (time blocks, day type) are only edited from the calendar.
  */
 export function PlanDaySheet({ date, onClose }) {
-  const { coaching, data, actions, notify, today } = useStore();
+  const { coaching, data, actions, notify, today, units } = useStore();
   const { open } = useSheets();
   const planDay = coaching.plan.days.find((d) => d.date === date);
   const day = planDay?.day;
@@ -46,7 +48,7 @@ export function PlanDaySheet({ date, onClose }) {
     try {
       await clearUserSessions();
       for (const r of rows)
-        await actions.create('plannedSessions', { date, type: r.type, distanceMi: Math.round(Number(r.distanceMi) * 100) / 100, time: r.time, title: r.title, status: 'planned', source: 'user' });
+        await actions.create('plannedSessions', { date, type: r.type, distanceMi: toMiles(Number(r.distanceMi), units), time: r.time, title: r.title, status: 'planned', source: 'user' });
       await actions.create('dayPlans', { id: date, locked: true });
       notify(`Plan for ${relativeDay(date, today)} saved — the rest of the month has been re-planned`);
       onClose();
@@ -82,7 +84,7 @@ export function PlanDaySheet({ date, onClose }) {
   const logRow = (r) =>
     open('activity', {
       defaultType: r.type,
-      initial: { type: r.type, date, distanceMi: Number(r.distanceMi) || '', durationMin: r.durationMin, startTime: r.time || '' },
+      initial: { type: r.type, date, distanceMi: Number(r.distanceMi) ? toMiles(Number(r.distanceMi), units) : '', durationMin: r.durationMin, startTime: r.time || '' },
     });
 
   if (!planDay) return null;
@@ -138,8 +140,8 @@ export function PlanDaySheet({ date, onClose }) {
               <div className="plan-fields">
                 <Seg value={r.type} onChange={(type) => upd(r.key, { type })} options={[{ value: 'run', label: 'Run' }, { value: 'walk', label: 'Walk' }]} ariaLabel="Type" />
                 <label className="plan-field">
-                  <input className="input" inputMode="decimal" value={r.distanceMi} onChange={(e) => upd(r.key, { distanceMi: e.target.value.replace(',', '.') })} aria-label="Planned miles" />
-                  <span className="tiny faint">mi</span>
+                  <input className="input" inputMode="decimal" value={r.distanceMi} onChange={(e) => upd(r.key, { distanceMi: e.target.value.replace(',', '.') })} aria-label={`Planned distance in ${units === 'km' ? 'kilometres' : 'miles'}`} />
+                  <span className="tiny faint">{units}</span>
                 </label>
                 <input className="input plan-time" type="time" value={r.time} onChange={(e) => upd(r.key, { time: e.target.value })} aria-label="Time" />
                 <button className="btn small" onClick={() => logRow(r)} title="Log this distance — you can change it before saving">
@@ -158,7 +160,7 @@ export function PlanDaySheet({ date, onClose }) {
             >
               <Icon name="plus" /> Add session
             </button>
-            <span className="small muted num">Planned: {total} mi</span>
+            <span className="small muted num">Planned: {total} {units}</span>
           </div>
           <p className="tiny faint" style={{ margin: 0 }}>
             “Log” records the distance as done, using the planned figure as a starting point you can change. To change this day’s time blocks or type, use the calendar.

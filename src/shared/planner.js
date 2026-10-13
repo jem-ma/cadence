@@ -3,6 +3,7 @@
 import { addDays, dateRange, diffDays, startOfWeek, weekday, timeToMin } from './dates.js';
 import { challengeStatus, recentActivities, longestRun, paceMinPerMile, round1, round2, sumMiles } from './calc.js';
 import { resolveDay, exerciseWindows, personalOf } from './schedule.js';
+import { wordDist, adjDist } from './units.js';
 
 export const DEFAULT_TRAINING = {
   easyRunMi: 3.5,
@@ -50,6 +51,12 @@ export function planChallenge(input) {
   const runPace = paceMinPerMile(activities, 'run', T.runPaceMin);
   const walkPace = paceMinPerMile(activities, 'walk', T.walkPaceMin);
   const status = challengeStatus(challenge, activities, today);
+  // The planner only schedules runs and walks, and only those the challenge counts.
+  const counted = challenge.activityTypes || ['run', 'walk'];
+  const runOK = counted.includes('run');
+  const walkOK = counted.includes('walk');
+  const plannable = runOK || walkOK;
+  const keep = (s) => s.fixed || (s.type === 'run' ? runOK : s.type === 'walk' ? walkOK : true);
 
   if (status.ended || today > challenge.endDate) {
     return { days: [], status, plannedMi: 0, projectedTotal: status.totalMi, shortfall: 0, buffer: 0, state: status.achieved ? 'complete' : 'ended', gapOptions: [], runPace, walkPace };
@@ -123,7 +130,7 @@ export function planChallenge(input) {
         mk('extendedWalk', 'walk', day.features.extendedWalk.mi, extraWalkTime(day), {
           label: L.extendedWalk,
           durationMin: day.features.extendedWalk.min,
-          reason: `Adds about ${day.features.extendedWalk.mi} miles to a day you are commuting anyway, without a late-evening run.`,
+          reason: `Adds about ${wordDist(day.features.extendedWalk.mi)} to a day you are commuting anyway, without a late-evening run.`,
         })
       );
     }
@@ -159,7 +166,7 @@ export function planChallenge(input) {
         );
       }
       // Weekend/free days can also hold a recovery walk when a run isn't placed
-      if (best.minutes >= 60 && ['weekend', 'free'].includes(day.dayType) && !hasUserWalk) {
+      if (best.minutes >= 60 && ['weekend', 'free'].includes(day.base) && !hasUserWalk) {
         candidates.push(mk('recoveryWalk', 'walk', 2.5, windows[1]?.start || best.start, { reason: 'Gentle mileage that supports recovery.' }));
       }
     }
@@ -172,6 +179,11 @@ export function planChallenge(input) {
     }
     return { date, day, sessions, candidates, notes, windows, inconvenient, isToday };
   });
+
+  for (const d of days) {
+    d.sessions = d.sessions.filter(keep);
+    d.candidates = d.candidates.filter(keep);
+  }
 
   // ---- Phase A: base plan (preferred runs + one long run per week) ----
   const weekOf = (d) => startOfWeek(d);
@@ -215,7 +227,7 @@ export function planChallenge(input) {
       if (!canRun(d.date, true)) continue;
       const c = d.candidates.find((x) => x.kind === 'longCandidate');
       const mi = periodAdjust(d, c.distanceMi, periodDrop);
-      place(d, c, `Your weekend has room for a longer run. ${round1(mi)} miles builds on your recent long runs without a big jump.`, {
+      place(d, c, `Your weekend has room for a longer run. ${wordDist(mi)} builds on your recent long runs without a big jump.`, {
         kind: 'long',
         label: L.long,
         distanceMi: mi,
@@ -226,12 +238,15 @@ export function planChallenge(input) {
 
   // 2) preferred-window runs (run from work, lunchtime 5K)
   for (const d of days) {
-    const c = d.candidates.find((x) => (x.kind === 'nans' || x.kind === 'lunch') && x.preferredWindow);
+    // anchors: run-from-work, lunchtime, or any run that sits in a window the user marked as preferred
+    const c = d.candidates.find((x) => (x.kind === 'nans' || x.kind === 'lunch' || x.kind === 'run') && x.preferredWindow);
     if (!c || !canRun(d.date)) continue;
     const reason =
       c.kind === 'nans'
         ? `You can run straight from ${P.runFromPlace}${c.time ? ` at ${c.time}` : ''} — no extra travel, and it's your most reliable midweek run.`
-        : 'Working from home leaves a lunchtime window that fits a 5K comfortably.';
+        : c.kind === 'lunch'
+          ? 'Working from home leaves a lunchtime window that fits a 5K comfortably.'
+          : `Your ${c.window?.label ? c.window.label.toLowerCase() : 'preferred'} window (${c.window?.start}–${c.window?.end}) is the best time for this day, so the plan anchors a run here.`;
     place(d, c, reason, { label: L[c.kind], distanceMi: periodAdjust(d, c.distanceMi, periodDrop) });
   }
 
@@ -304,11 +319,12 @@ export function planChallenge(input) {
 
   let state = 'on-track';
   if (status.remainingMi <= 0) state = 'complete';
+  else if (!plannable) state = 'on-track'; // nothing the planner can schedule; totals still update as you log
   else if (shortfall > 0.05) state = 'at-risk';
   else if (status.vsTrajectory >= 3) state = 'ahead';
   else if (status.vsTrajectory <= -3) state = 'behind';
 
-  const gapOptions = shortfall > 0 ? suggestGapOptions(days, shortfall, T) : [];
+  const gapOptions = shortfall > 0 && plannable ? suggestGapOptions(days, shortfall, T, P) : [];
 
   return {
     days,
@@ -322,6 +338,7 @@ export function planChallenge(input) {
     gapOptions,
     runPace,
     walkPace,
+    plannable,
     longTarget,
     recentLongest,
     recentRuns: recent.filter((a) => a.type === 'run').length,
@@ -342,16 +359,16 @@ function periodAdjust(d, mi, drop) {
   return round1(Math.max(2, mi * 0.8));
 }
 
-function suggestGapOptions(days, shortfall, T) {
+function suggestGapOptions(days, shortfall, T, P) {
   const out = [];
   const inconvenient = days.filter((d) => d.inconvenient.length && !d.sessions.some((s) => s.type === 'run'));
   const busyOrOff = days.filter((d) => ['busy', 'unavailable'].includes(d.day.status));
-  out.push(`The realistic plan falls about ${shortfall} miles short. Small changes that would close it:`);
-  if (busyOrOff.length) out.push(`Free up part of ${busyOrOff.length === 1 ? 'one blocked day' : `one of ${busyOrOff.length} busy/blocked days`} for a 3-mile run.`);
+  out.push(`The realistic plan falls about ${wordDist(shortfall)} short. Small changes that would close it:`);
+  if (busyOrOff.length) out.push(`Free up part of ${busyOrOff.length === 1 ? 'one blocked day' : `one of ${busyOrOff.length} busy/blocked days`} for a ${adjDist(3)} run.`);
   const weekendDays = days.filter((d) => [0, 6].includes(weekday(d.date)) && d.day.status === 'normal');
-  if (weekendDays.length) out.push('Add a second, easy weekend outing — a 3-mile walk the day after a long run is gentle and counts.');
-  if (inconvenient.length) out.push(`${inconvenient.length} evenings are technically free but tiring. One easy 3-mile run on an evening you feel good would help — only if it suits you.`);
-  if (!T.allowExtendedWalks) out.push('Re-enable the walk-home-from-two-stops-early option on office days (+3 miles each).');
+  if (weekendDays.length) out.push(`Add a second, easy weekend outing — a ${adjDist(3)} walk the day after a long run is gentle and counts.`);
+  if (inconvenient.length) out.push(`${inconvenient.length} evenings are technically free but tiring. One easy ${adjDist(3)} run on an evening you feel good would help — only if it suits you.`);
+  if (!T.allowExtendedWalks && P.extraWalk.enabled) out.push(`Re-enable “${P.extraWalk.label.toLowerCase()}” on office days (about ${wordDist(P.extraWalk.mi)} each).`);
   out.push(`Lowering the target is also a legitimate choice if the month has turned out busier than planned.`);
   return out;
 }

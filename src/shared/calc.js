@@ -1,7 +1,9 @@
 // Deterministic mileage calculations. Nothing here depends on the AI layer.
 import { addDays, dateRange, diffDays, startOfWeek } from './dates.js';
+import { KM_PER_MILE } from './units.js';
+import { ACTIVITY_TYPES, isDistanceType } from './activities.js';
 
-export const KM_PER_MILE = 1.609344;
+export { KM_PER_MILE };
 export const round1 = (n) => Math.round((n + Number.EPSILON) * 10) / 10;
 export const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 export const kmToMi = (km) => km / KM_PER_MILE;
@@ -43,7 +45,9 @@ export function challengeStatus(challenge, activities, today) {
   const list = challengeActivities(activities, challenge);
   const runMi = sumMiles(list, 'run');
   const walkMi = sumMiles(list, 'walk');
-  const totalMi = round2(runMi + walkMi);
+  const byType = {};
+  for (const t of challenge.activityTypes || ['run', 'walk']) byType[t] = round2(sumMiles(list, t));
+  const totalMi = round2(sumMiles(list));
   const target = Number(challenge.targetMiles);
   const remainingMi = round2(Math.max(0, target - totalMi));
   const pct = target > 0 ? Math.min(100, (totalMi / target) * 100) : 0;
@@ -66,6 +70,7 @@ export function challengeStatus(challenge, activities, today) {
   return {
     runMi: round2(runMi),
     walkMi: round2(walkMi),
+    byType,
     totalMi,
     target,
     remainingMi,
@@ -81,6 +86,7 @@ export function challengeStatus(challenge, activities, today) {
     achieved: totalMi >= target,
     activityCount: list.length,
     runCount: list.filter((a) => a.type === 'run' && !a.isBaseline).length,
+    sessionCount: list.filter((a) => !a.isBaseline).length,
   };
 }
 
@@ -131,6 +137,7 @@ export function weeklyTotals(challenge, activities) {
       weekEnd: we,
       run: sumMiles(inWeek, 'run'),
       walk: sumMiles(inWeek, 'walk'),
+      byType: Object.fromEntries(Object.keys(ACTIVITY_TYPES).map((t) => [t, sumMiles(inWeek, t)])),
       total: sumMiles(inWeek),
     });
     ws = addDays(ws, 7);
@@ -175,9 +182,15 @@ export function findPossibleDuplicate(incoming, existing) {
     if (a.deleted || a.id === incoming.id) return false;
     if (a.externalId && incoming.externalId && a.externalId === incoming.externalId) return true;
     if (a.date !== incoming.date || a.type !== incoming.type || a.isBaseline) return false;
-    const dd = Math.abs(Number(a.distanceMi) - Number(incoming.distanceMi));
-    const tol = Math.max(0.15, Number(incoming.distanceMi) * 0.06);
-    if (dd > tol) return false;
+    if (isDistanceType(incoming.type)) {
+      const dd = Math.abs(Number(a.distanceMi) - Number(incoming.distanceMi));
+      const tol = Math.max(0.15, Number(incoming.distanceMi) * 0.06);
+      if (dd > tol) return false;
+    } else {
+      // time-based activities are compared by duration
+      const dm = Math.abs(Number(a.durationMin || 0) - Number(incoming.durationMin || 0));
+      if (dm > Math.max(5, Number(incoming.durationMin || 0) * 0.1)) return false;
+    }
     if (a.startTime && incoming.startTime) {
       const [ah, am] = a.startTime.split(':').map(Number);
       const [ih, im] = incoming.startTime.split(':').map(Number);
@@ -190,11 +203,26 @@ export function findPossibleDuplicate(incoming, existing) {
 export function validateActivity(a) {
   const errors = {};
   if (!a.date || !/^\d{4}-\d{2}-\d{2}$/.test(a.date)) errors.date = 'Choose a date';
-  if (!['run', 'walk'].includes(a.type)) errors.type = 'Choose run or walk';
-  const d = Number(a.distanceMi);
-  if (!(d > 0)) errors.distanceMi = 'Distance must be more than 0';
-  else if (d > 100) errors.distanceMi = 'That looks too far — check the units';
+  if (!ACTIVITY_TYPES[a.type]) errors.type = 'Choose an activity type';
+  const hasDuration = a.durationMin != null && a.durationMin !== '' && Number(a.durationMin) > 0;
+  if (isDistanceType(a.type)) {
+    const d = Number(a.distanceMi);
+    if (!(d > 0)) errors.distanceMi = 'Distance must be more than 0';
+    else if (d > (a.type === 'cycle' ? 300 : 100)) errors.distanceMi = 'That looks too far — check the units';
+  } else if (!hasDuration) {
+    errors.durationMin = 'Add how long it lasted';
+  }
   if (a.durationMin != null && a.durationMin !== '' && !(Number(a.durationMin) >= 0)) errors.durationMin = 'Invalid duration';
   if (a.startTime && !/^\d{2}:\d{2}$/.test(a.startTime)) errors.startTime = 'Use HH:MM';
   return errors;
+}
+
+/**
+ * Where to date distance someone had already done before starting to use the app:
+ * the last day of the previous week, so the current week starts clear. If the challenge itself
+ * began this week, its first day is the earliest possible date.
+ */
+export function openingBalanceDate(today, challengeStart) {
+  const prevWeekEnd = addDays(startOfWeek(today), -1);
+  return prevWeekEnd >= challengeStart ? prevWeekEnd : challengeStart;
 }

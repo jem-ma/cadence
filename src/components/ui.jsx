@@ -1,4 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef } from 'react';
+import { ACTIVITY_ORDER, ACTIVITY_TYPES } from '../shared/activities.js';
 
 const P = {
   today: 'M12 3v2M12 19v2M5 12H3M21 12h-2M6.3 6.3 4.9 4.9M19.1 19.1l-1.4-1.4M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z',
@@ -10,6 +11,9 @@ const P = {
   run: 'M13 4a2 2 0 1 0 4 0 2 2 0 0 0-4 0M7 21l3-6 3 2v5M5 11l3-3 4 1 3 4h4M10 15l-2-3',
   walk: 'M12 4a2 2 0 1 0 4 0 2 2 0 0 0-4 0M9 21l2-6 3 2 1 4M8 12l2-4 4 1 2 4M11 15l-1-3',
   food: 'M7 3v8a2 2 0 0 0 2 2v8M5 3v5M9 3v5M17 3c-2 1-3 4-3 7h3v11',
+  cycle: 'M2 17a3 3 0 1 0 6 0 3 3 0 1 0-6 0M16 17a3 3 0 1 0 6 0 3 3 0 1 0-6 0M5 17l4-8h6l4 8M9 9l3 8 3-8M7 6h3',
+  swim: 'M14 6a1.6 1.6 0 1 0 3.2 0 1.6 1.6 0 1 0-3.2 0M4 12l5-3 4 3 3-2M2 16c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0M2 20c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0',
+  box: 'M7 4h7a4 4 0 0 1 4 4v3a3 3 0 0 1-3 3H9v4a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM9 14v-3',
   energy: 'M13 2 4 14h7l-1 8 9-12h-7l1-8Z',
   edit: 'M4 20h4L19 9l-4-4L4 16v4ZM14 6l4 4',
   refresh: 'M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4',
@@ -165,3 +169,23 @@ export function Banner({ kind = 'info', icon, children }) {
 
 export const fmtMi = (n, d = 1) => (n == null || isNaN(n) ? '–' : Number(n).toFixed(d).replace(/\.0+$/, d ? '.0' : ''));
 export const mi = (n) => `${Number(n || 0).toFixed(1)} mi`;
+
+/** Multi-select filter pills for the activities a challenge counts. */
+export function ActivityPills({ value, onChange }) {
+  const toggle = (t) => onChange(value.includes(t) ? value.filter((x) => x !== t) : [...value, t]);
+  return (
+    <div className="pills" role="group" aria-label="What counts">
+      {ACTIVITY_ORDER.map((t) => (
+        <button key={t} type="button" className={`pill ${value.includes(t) ? 'on' : ''}`} aria-pressed={value.includes(t)} onClick={() => toggle(t)}>
+          <Icon name={t} width="15" height="15" />
+          {ACTIVITY_TYPES[t].label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** mi / km switch used next to distance inputs. */
+export function UnitSeg({ value, onChange }) {
+  return <Seg value={value} onChange={onChange} ariaLabel="Distance unit" options={[{ value: 'mi', label: 'miles' }, { value: 'km', label: 'km' }]} />;
+}

@@ -3,9 +3,11 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { forUser, users, assertCollection, initialiseUser, COLLECTIONS, storageInfo } from './db.js';
 import { requireUser, setSession, clearSession, hashPassword, verifyPassword, validateCredentials, attemptLogin } from './auth.js';
-import { aiStatus, coachNote, parseFood } from './ai.js';
+import { aiStatus, coachNote, parseFood, logMeal } from './ai.js';
 import { buildCoaching, aiContext, contextFingerprint } from '../src/shared/coach.js';
-import { estimateFromText } from '../src/shared/nutrition.js';
+import { estimateFromText, mealForTime, mealFeedback } from '../src/shared/nutrition.js';
+import { timeToMin, toISODate } from '../src/shared/dates.js';
+import { isDistanceType } from '../src/shared/activities.js';
 import { findPossibleDuplicate, validateActivity } from '../src/shared/calc.js';
 import { newUserData, upgradeLegacyProfile } from '../src/shared/seed.js';
 
@@ -117,7 +119,8 @@ function normaliseActivity(b) {
   const a = { ...b };
   if (a.distanceKm != null && a.distanceKm !== '' && (a.distanceMi == null || a.distanceMi === '')) a.distanceMi = Number(a.distanceKm) / 1.609344;
   delete a.distanceKm;
-  a.distanceMi = Math.round(Number(a.distanceMi) * 100) / 100;
+  const dMi = Math.round(Number(a.distanceMi) * 100) / 100;
+  a.distanceMi = isNaN(dMi) && !isDistanceType(a.type) ? 0 : dMi;
   a.durationMin = a.durationMin === '' || a.durationMin == null ? null : Math.round(Number(a.durationMin));
   a.effort = a.effort === '' || a.effort == null ? null : Number(a.effort);
   return a;
@@ -190,6 +193,57 @@ async function coachData(store, challengeId) {
     },
   };
 }
+
+/**
+ * "What did you eat?" — one text box. Estimates the meal, saves it (meal type chosen from the time of day),
+ * and returns a short coach response: from the AI coach when it's configured, otherwise from built-in rules.
+ */
+app.post('/api/food/log', wrap(async (req, res) => {
+  const { text = '', portion = '', notes = '', photo = null } = req.body || {};
+  if (!String(text).trim() && !photo) return res.status(400).json({ error: 'Tell me what you ate' });
+  const now = req.body?.localNow ? new Date(req.body.localNow) : new Date();
+  if (isNaN(now)) return res.status(400).json({ error: 'Invalid time' });
+  const date = toISODate(now);
+  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  const data = await coachData(req.store, req.body?.challengeId);
+  const entry = { id: newId('foo'), date, time, meal: mealForTime(nowMin), text: String(text).trim(), portion, notes, photo, createdAt: new Date().toISOString() };
+
+  // context for both the AI and the built-in response
+  let ctx = null;
+  if (data.challenge) ctx = buildCoaching({ ...data, foods: [...data.foods, { ...entry, estimate: null }] }, now);
+  const upcoming = ctx?.todayPlan?.sessions.find((s) => s.type === 'run' && s.time && timeToMin(s.time) > nowMin && !s.optional);
+  const justTrained = (ctx?.doneToday || []).some((a) => a.type !== 'walk' && (!a.startTime || nowMin - (timeToMin(a.startTime) + Number(a.durationMin || 0)) <= 150));
+  const feedbackCtx = { minsToRun: upcoming ? timeToMin(upcoming.time) - nowMin : null, runLabel: upcoming?.label?.toLowerCase(), justTrained };
+
+  let estimate = null;
+  let coach = null;
+  let aiError = null;
+  if (aiStatus().enabled) {
+    if (await takeAiAllowance(req.store, 'foods')) {
+      try {
+        const summary = ctx ? { ...aiContext(ctx, data) } : { distanceUnit: 'miles' };
+        delete summary.ruleBasedDraft;
+        delete summary.nextDays;
+        delete summary.recentActivities;
+        const out = await logMeal({ text: entry.text, portion, notes, photo, context: summary });
+        estimate = { items: out.items, totals: out.totals, confidence: out.confidence, assumptions: out.assumptions, note: out.note, source: 'ai', unmatched: [] };
+        coach = { text: out.coach_response, source: 'ai', at: new Date().toISOString() };
+      } catch (e) {
+        aiError = e.message;
+      }
+    } else aiError = 'Daily AI limit reached';
+  }
+  if (!estimate) {
+    estimate = estimateFromText(`${entry.text} ${portion}`);
+    coach = { text: mealFeedback({ estimate, ctx: feedbackCtx }), source: 'rules', at: new Date().toISOString() };
+  }
+  entry.estimate = estimate;
+  entry.coach = coach;
+  const saved = await req.store.put('foods', entry);
+  res.json({ entry: saved, estimate, coach, aiError });
+}));
 
 /**
  * Today's AI coach's note. Generated once a day automatically; "refresh" regenerates it

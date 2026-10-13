@@ -4,6 +4,7 @@ import { WeeklyBars } from '../components/charts.jsx';
 import { formatDate, startOfWeek } from '../shared/dates.js';
 import { challengeReview } from '../shared/reviews.js';
 import { challengeStatus } from '../shared/calc.js';
+import { dist, distFixed, fmtDist, unitShort, unitWord } from '../shared/units.js';
 
 function K({ v, l }) {
   return (
@@ -26,9 +27,9 @@ export function ChallengeReviewCard({ challenge, title, showTotals = false, hide
         <span className={`chip ${r.achieved ? 'ok' : today > challenge.endDate ? 'warn' : ''}`}>{r.achieved ? 'Target achieved' : today > challenge.endDate ? 'Target not reached' : 'In progress'}</span>
       </div>
       {!hideKpis && <div className="kpi-row">
-        {showTotals && <K v={`${r.total.toFixed(1)} / ${r.target}`} l="miles" />}
-        {showTotals && <K v={`${r.run.toFixed(1)} / ${r.walk.toFixed(1)}`} l="run / walk" />}
-        <K v={r.longest.toFixed(1)} l="longest run (mi)" />
+        {showTotals && <K v={`${distFixed(r.total)} / ${dist(r.target)}`} l={unitWord()} />}
+        {showTotals && <K v={`${distFixed(r.run)} / ${distFixed(r.walk)}`} l="run / walk" />}
+        <K v={dist(r.longest)} l={`longest run (${unitShort()})`} />
         <K v={r.runCount} l="runs logged" />
         <K v={r.activeDays} l="active days" />
         {!showTotals && <K v={r.recCompletion != null ? `${r.recCompletion}%` : '–'} l="plans followed" />}
@@ -50,7 +51,7 @@ export function ChallengeReviewCard({ challenge, title, showTotals = false, hide
         </div>
         <div>
           <div className="section-title" style={{ marginTop: 6 }}>
-            Weekly mileage
+            Weekly distance
           </div>
           <WeeklyBars weeks={r.weeks} weeklyTarget={(r.target / ((new Date(challenge.endDate) - new Date(challenge.startDate)) / 86400000 + 1)) * 7} current={startOfWeek(today)} />
         </div>
@@ -77,7 +78,7 @@ export function OtherChallenges() {
                 <div className="grow">
                   <div className="title">{c.name}</div>
                   <div className="sub">
-                    {formatDate(c.startDate, { short: true })} – {formatDate(c.endDate, { short: true, year: true })} · {st.totalMi.toFixed(1)} of {c.targetMiles} mi
+                    {formatDate(c.startDate, { short: true })} – {formatDate(c.endDate, { short: true, year: true })} · {dist(st.totalMi)} of {fmtDist(c.targetMiles)}
                   </div>
                 </div>
                 <button className="btn small ghost" onClick={() => setSelected(selected === c.id ? null : c.id)}>

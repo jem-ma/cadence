@@ -36,16 +36,6 @@ export function personalOf(src = {}) {
   return { ...DEFAULT_PERSONAL, ...p, extraWalk: { ...DEFAULT_PERSONAL.extraWalk, ...(p.extraWalk || {}) } };
 }
 
-/** Day-type names, with the run-from place filled in. kind: 'label' | 'plural' | 'short'. */
-export function typeName(type, personal, kind = 'label') {
-  const def = DAY_TYPES[type] || DAY_TYPES.custom;
-  const place = personalOf({ personal }).runFromPlace;
-  if (type === 'nans' && place && place.toLowerCase() !== 'work') {
-    return { label: `Working at ${place}`, plural: `Days at ${place}`, short: place }[kind];
-  }
-  return def[kind];
-}
-
 export const DAY_TYPES = {
   office: {
     label: 'Office day', plural: 'Office days',
@@ -70,6 +60,31 @@ export const DAY_TYPES = {
     ],
     features: { runFromWork: true },
     prep: ['Pack running kit and shoes', 'Pack an afternoon snack', 'Bring water and something for after the run'],
+  },
+  morning: {
+    label: 'Morning movement', plural: 'Morning-movement days',
+    short: 'Morning',
+    color: 'green',
+    blocks: () => [
+      blk('06:30', '08:30', 'preferred', 'Morning movement', 'run'),
+      blk('08:30', '18:00', 'unavailable', 'Busy day'),
+      blk('18:00', '21:00', 'inconvenient', 'Evening'),
+    ],
+    features: { longRunPossible: false },
+    prep: ['Lay out your kit the night before'],
+  },
+  evening: {
+    label: 'Evening movement', plural: 'Evening-movement days',
+    short: 'Evening',
+    color: 'amber',
+    blocks: () => [
+      blk('06:30', '09:00', 'inconvenient', 'Early morning'),
+      blk('09:00', '17:30', 'unavailable', 'Busy day'),
+      blk('17:30', '19:30', 'preferred', 'Evening movement', 'run'),
+      blk('19:30', '21:30', 'inconvenient', 'Late evening'),
+    ],
+    features: { longRunPossible: false },
+    prep: ['Pack your kit and an afternoon snack'],
   },
   wfh: {
     label: 'Working from home', plural: 'Work-from-home days',
@@ -96,6 +111,19 @@ export const DAY_TYPES = {
     features: { longRunPossible: true },
     prep: [],
   },
+  // What a user-added day type behaves like until they edit its time blocks: a few short windows, no long runs.
+  flex: {
+    label: 'Flexible day', plural: 'Flexible days',
+    short: 'Flexible',
+    color: 'blue',
+    blocks: () => [
+      blk('07:00', '09:00', 'optional', 'Morning'),
+      blk('12:00', '14:00', 'optional', 'Midday'),
+      blk('17:30', '20:00', 'optional', 'Evening'),
+    ],
+    features: { longRunPossible: false },
+    prep: [],
+  },
   free: {
     label: 'Free day', plural: 'Free days',
     short: 'Free',
@@ -108,29 +136,83 @@ export const DAY_TYPES = {
   custom: { label: 'Custom', plural: 'Custom days', short: 'Custom', color: 'grey', blocks: () => [], features: {}, prep: [] },
 };
 
-/** A weekly template from a weekday → day-type mapping (0 = Sunday). Defaults to a generic week. */
-export function defaultWeekTemplate(mapping, personal) {
+/**
+ * Placeholder day types a new user starts with. Each has a "base" that decides how the planner
+ * treats it (which windows exist, whether there's a commute…). Users can delete these and add their own.
+ */
+export const PLACEHOLDER_DAY_TYPES = [
+  { id: 'office', label: 'Office day', base: 'office' },
+  { id: 'wfh', label: 'Work from home', base: 'wfh' },
+  { id: 'morning', label: 'Morning movement', base: 'morning' },
+  { id: 'evening', label: 'Evening movement', base: 'evening' },
+  { id: 'weekend', label: 'Weekend', base: 'weekend' },
+  { id: 'off', label: 'Too busy', base: 'off' },
+];
+
+/** What a custom (user-added) day type behaves like until its time blocks are edited. */
+export const CUSTOM_BASE = 'flex';
+
+/**
+ * The full definition for a day type id: behaviour from its base, name from the user's list.
+ * `src` is anything with { personal, dayTypes } (a calendar object or a profile).
+ */
+export function typeDefFor(type, src = {}) {
+  const custom = (src.dayTypes || []).find((t) => t.id === type);
+  if (custom) {
+    const base = DAY_TYPES[custom.base] || DAY_TYPES[CUSTOM_BASE];
+    // a short name for tight spaces such as calendar cells
+    const short = custom.label.length <= 9 ? custom.label : custom.id === custom.base ? base.short : custom.label.split(' ')[0].slice(0, 9);
+    return { ...base, label: custom.label, plural: custom.label, short, base: custom.base in DAY_TYPES ? custom.base : CUSTOM_BASE };
+  }
+  const def = DAY_TYPES[type] || DAY_TYPES.custom;
+  const place = personalOf(src).runFromPlace;
+  if (type === 'nans' && place && place.toLowerCase() !== 'work') {
+    return { ...def, label: `Working at ${place}`, plural: `Days at ${place}`, short: place, base: type };
+  }
+  return { ...def, base: type };
+}
+
+/** Day-type name. kind: 'label' | 'plural' | 'short'. */
+export function typeName(type, src = {}, kind = 'label') {
+  return typeDefFor(type, src)[kind];
+}
+
+/** The day types a person manages: their own list, or the built-ins for accounts that predate custom types. */
+export function effectiveDayTypes(src = {}) {
+  if (src.dayTypes?.length) return src.dayTypes.map((t) => ({ ...t }));
+  return ['office', 'nans', 'wfh', 'weekend', 'free', 'off'].map((id) => ({ id, label: typeName(id, src), base: id }));
+}
+
+/** The options a person can pick for a day: their own list, or the built-ins for older accounts. */
+export function dayTypeOptions(src = {}) {
+  if (src.dayTypes?.length) return src.dayTypes.map((t) => ({ value: t.id, label: t.label, base: t.base }));
+  return ['office', 'nans', 'wfh', 'weekend', 'free', 'off', 'custom'].map((value) => ({ value, label: typeName(value, src), base: value }));
+}
+
+/** A weekly template from a weekday → day-type id mapping (0 = Sunday). Defaults to a generic week. */
+export function defaultWeekTemplate(mapping, src = {}) {
   const t = mapping || { 1: 'wfh', 2: 'wfh', 3: 'wfh', 4: 'wfh', 5: 'wfh', 6: 'weekend', 0: 'weekend' };
+  const personal = src.personal;
   const out = {};
-  for (const [wd, type] of Object.entries(t)) out[wd] = { dayType: type, blocks: DAY_TYPES[type].blocks(personal), notes: '' };
+  for (const [wd, type] of Object.entries(t)) out[wd] = { dayType: type, blocks: typeDefFor(type, src).blocks(personal), notes: '' };
   return out;
 }
 
-export function blocksForType(type, personal) {
-  return (DAY_TYPES[type] || DAY_TYPES.custom).blocks(personal);
+export function blocksForType(type, src = {}) {
+  return typeDefFor(type, src).blocks(src.personal);
 }
 
 /** Resolve the effective plan for a single date. */
 export function resolveDay(date, cal) {
   const template = cal.weekTemplate || defaultWeekTemplate();
-  const base = template[weekday(date)] || { dayType: 'free', blocks: blocksForType('free') };
+  const base = template[weekday(date)] || { dayType: 'free', blocks: blocksForType('free', cal) };
   const ov = (cal.dayOverrides || []).find((o) => o.id === date || o.date === date);
   const dayType = ov?.dayType || base.dayType;
   const blocks = (ov?.blocks || base.blocks || []).slice().sort((a, b) => a.start.localeCompare(b.start));
   const status = ov?.status || 'normal';
   const events = (cal.events || []).filter((e) => e.date === date).sort((a, b) => (a.start || '').localeCompare(b.start || ''));
   const planned = (cal.plannedSessions || []).filter((p) => p.date === date && p.status !== 'cancelled');
-  const typeDef = DAY_TYPES[dayType] || DAY_TYPES.custom;
+  const typeDef = typeDefFor(dayType, cal);
   const P = personalOf(cal);
   const features = { ...typeDef.features, ...(ov?.features || {}) };
   if (features.commute) {
@@ -140,8 +222,9 @@ export function resolveDay(date, cal) {
   return {
     date,
     dayType,
-    label: typeName(dayType, P, 'label'),
-    short: typeName(dayType, P, 'short'),
+    base: typeDef.base,
+    label: typeDef.label,
+    short: typeDef.short,
     blocks,
     status,
     notes: [base.notes, ov?.notes].filter(Boolean).join(' · '),
@@ -211,8 +294,4 @@ export function exerciseWindows(day, { fromMinute = 0 } = {}) {
       });
   const windows = build(['preferred', 'optional']).sort((a, b) => (a.kind === b.kind ? b.minutes - a.minutes : a.kind === 'preferred' ? -1 : 1));
   return { windows, inconvenient: build(['inconvenient']) };
-}
-
-export function dayTypeOptions(personal) {
-  return Object.keys(DAY_TYPES).map((value) => ({ value, label: typeName(value, personal) }));
 }

@@ -7,6 +7,8 @@ import { planChallenge } from './planner.js';
 import { resolveDay, personalOf } from './schedule.js';
 import { nutritionAdvice } from './nutrition.js';
 import { latestEnergy, computePatterns } from './insights.js';
+import { setUnit, toUnit, dist, wordDist, adjDist, fmtDist, unitWord } from './units.js';
+import { typeNoun, isDistanceType } from './activities.js';
 
 export function energyState(log) {
   if (!log) return { level: 'unknown', score: null };
@@ -28,6 +30,7 @@ export function buildCoaching(data, now = new Date()) {
   const today = toISODate(now);
   const nowMin = nowMinutes(now);
   const { challenge, activities = [], energyLogs = [], foods = [], cal = {}, profile = {}, recommendations = [] } = data;
+  setUnit(profile.units);
   const patterns = computePatterns({ energyLogs, activities, foods, cal });
   const energyLog = latestEnergy(energyLogs, today);
   const energy = energyState(energyLog);
@@ -78,10 +81,6 @@ export function buildCoaching(data, now = new Date()) {
   return { today, nowMin, plan, status, energy, energyLog, patterns, day, tomorrow, todayPlan, tomorrowPlan, doneToday, foodsToday, rec, todayRec };
 }
 
-function sessionText(s) {
-  return `${s.label.toLowerCase()} — ${s.distanceMi} mi (~${formatDuration(s.durationMin)})`;
-}
-
 function composeRecommendation(c) {
   const { today, nowMin, day, tomorrow, todayPlan, tomorrowPlan, plan, status, energy, doneToday, doneTodayMi, skipped, profile } = c;
   const lc = (t) => t.charAt(0).toLowerCase() + t.slice(1);
@@ -90,7 +89,7 @@ function composeRecommendation(c) {
   const commute = sessions.find((s) => s.kind === 'commute');
   const extWalk = sessions.find((s) => s.kind === 'extendedWalk');
   const recWalk = sessions.find((s) => s.kind === 'recoveryWalk');
-  const ranToday = doneToday.some((a) => a.type === 'run');
+  const workouts = doneToday.filter((a) => a.type !== 'walk');
   const why = [];
   const prep = [];
   let action;
@@ -98,43 +97,58 @@ function composeRecommendation(c) {
   let activity = null;
 
   if (status.remainingMi <= 0) {
-    action = { title: 'Challenge complete', summary: `You've reached ${status.target} miles. Anything from here is a bonus — move because you enjoy it.` };
+    action = { title: 'Challenge complete', summary: `You've reached ${wordDist(status.target)}. Anything from here is a bonus — move because you enjoy it.` };
     alternative = 'Rest, or a relaxed walk if you fancy it.';
     why.push('Your target is already met, so there is no need to chase extra mileage.');
   } else if (day.status === 'unavailable') {
     action = { title: 'No exercise today', summary: "You've marked today as unavailable. That's fine — the plan has already moved this mileage to other days." };
-    alternative = commute ? `If you do end up walking, log it — ${commute.distanceMi} miles of commuting would still count.` : 'Rest.';
+    alternative = commute ? `If you do end up walking, log it — ${wordDist(commute.distanceMi)} of commuting would still count.` : 'Rest.';
     why.push('Days you mark as unavailable are excluded from planning, and the remaining distance is spread across realistic opportunities.');
   } else if (energy.level === 'very-low') {
     action = { title: 'Rest and recover', summary: `Energy is ${energy.score}/10. Rest today${commute ? ' — your normal commute walking will still add some distance' : ''}.` };
     alternative = 'A gentle 15–20 minute walk if you feel like getting outside — only if it helps.';
     why.push('Pushing through very low energy rarely helps consistency. One rest day has a small effect on the overall plan.');
-  } else if (ranToday && !run) {
-    const ranMi = round1(sumMiles(doneToday.filter((a) => a.type === 'run')));
+  } else if (plan.plannable === false) {
     action = {
-      title: `${ranMi}-mile run done`,
-      summary: `You've already run today, so there's nothing more to add. Recover well${commute ? ` — and log your commute walking (about ${commute.distanceMi} miles) if you did it` : ''}.`,
+      title: 'Log your activity as you go',
+      summary: 'Cadence schedules runs and walks. Your challenge counts other activities, so log each one and your totals update straight away.',
+    };
+    alternative = 'Rest days are part of it — nothing is needed today if you are tired.';
+    why.push(`${wordDist(status.remainingMi)} to go over ${status.daysRemaining} ${status.daysRemaining === 1 ? 'day' : 'days'} (about ${wordDist(status.requiredPerDay)} a day).`);
+  } else if (workouts.length && !run) {
+    const types = [...new Set(workouts.map((a) => a.type))];
+    const mi = round1(sumMiles(workouts));
+    const mins = workouts.reduce((t, a) => t + Number(a.durationMin || 0), 0);
+    const title =
+      types.length === 1 && isDistanceType(types[0])
+        ? `${adjDist(mi)} ${typeNoun(types[0]).toLowerCase()} done`
+        : types.length === 1
+          ? `${mins ? `${mins} min of ` : ''}${typeNoun(types[0]).toLowerCase()} done`
+          : 'Training done for today';
+    action = {
+      title,
+      summary: `You've already trained today, so there's nothing more to add. Recover well${commute ? ` — and log your commute walking (about ${wordDist(commute.distanceMi)}) if you did it` : ''}.`,
     };
     activity = commute || null;
     alternative = 'A relaxed walk only if you fancy one — it is not needed for the plan.';
-    why.push(`Today's ${ranMi} miles are already counted, and the rest of the plan has been recalculated around them.`);
-  } else if (day.dayType === 'office' && !run) {
-    const walkLine = commute ? `Your normal commute walking will contribute about ${commute.distanceMi} miles.` : '';
+    why.push(mi > 0 ? `Today's ${wordDist(mi)} are already counted, and the rest of the plan has been recalculated around them.` : 'Today is logged, and the rest of the plan has been recalculated around it.');
+  } else if (day.base === 'office' && !run) {
+    const walkLine = commute ? `Your normal commute walking will contribute about ${wordDist(commute.distanceMi)}.` : '';
     if (extWalk && !extWalk.optional) {
       action = {
         title: commute ? `Commute walk + ${lc(extWalk.label)}` : extWalk.label,
-        summary: `Today is a long office day, so don't force a run tonight. ${walkLine} ${extWalk.label} adds about ${extWalk.distanceMi} miles (around ${formatDuration(extWalk.durationMin)}).`,
+        summary: `Today is a long office day, so don't force a run tonight. ${walkLine} ${extWalk.label} adds about ${wordDist(extWalk.distanceMi)} (around ${formatDuration(extWalk.durationMin)}).`,
       };
       activity = extWalk;
       why.push('The plan relies on a few strategic walks on office days to cover the remaining distance without adding late-evening runs.');
-      alternative = commute ? `If you're tired or short on time, just do the normal commute (${commute.distanceMi} mi) — the plan can absorb it.` : 'If you are tired, skip it — the plan can absorb it.';
+      alternative = commute ? `If you're tired or short on time, just do the normal commute (${fmtDist(commute.distanceMi)}) — the plan can absorb it.` : 'If you are tired, skip it — the plan can absorb it.';
     } else {
       action = {
         title: commute ? 'Office day — commute walking only' : 'Office day — no run planned',
-        summary: `Today is a long office day, so don't force a run tonight. ${walkLine}${extWalk ? ` If you have the time and energy, ${lc(extWalk.label)} would add another ${extWalk.distanceMi} miles.` : ''}`,
+        summary: `Today is a long office day, so don't force a run tonight. ${walkLine}${extWalk ? ` If you have the time and energy, ${lc(extWalk.label)} would add another ${wordDist(extWalk.distanceMi)}.` : ''}`,
       };
       activity = commute;
-      alternative = extWalk ? `Optional: ${lc(extWalk.label)} (+${extWalk.distanceMi} mi, ~${formatDuration(extWalk.durationMin)}).` : 'Rest this evening.';
+      alternative = extWalk ? `Optional: ${lc(extWalk.label)} (+${fmtDist(extWalk.distanceMi)}, ~${formatDuration(extWalk.durationMin)}).` : 'Rest this evening.';
       why.push(commute ? 'Long commute days are tiring, so the plan uses walking you are already doing rather than a late run.' : 'Office days are long, so the plan keeps your runs for days with better windows.');
     }
     if (commute && day.workEndsAt && nowMin > timeToMin(day.workEndsAt) + 15) action.summary += ' The commute is done for today — make sure the walking is logged.';
@@ -143,24 +157,24 @@ function composeRecommendation(c) {
     activity = run;
     const late = t && timeToMin(t) + run.durationMin < nowMin;
     action = {
-      title: `${run.label}: ${run.distanceMi} miles`,
-      summary: `${run.label} of ${run.distanceMi} miles (~${formatDuration(run.durationMin)})${t ? ` at ${t}` : ''}${run.window ? ` (window ${run.window.start}–${run.window.end})` : ''}.`,
+      title: `${run.label}: ${wordDist(run.distanceMi)}`,
+      summary: `${run.label} of ${wordDist(run.distanceMi)} (~${formatDuration(run.durationMin)})${t ? ` at ${t}` : ''}${run.window ? ` (window ${run.window.start}–${run.window.end})` : ''}.`,
     };
     why.push(run.reason || 'This fits your best available window today.');
-    if (energy.level === 'low') why.push(`Energy is ${energy.score}/10, so I've capped it at an easy ${run.distanceMi} miles.`);
+    if (energy.level === 'low') why.push(`Energy is ${energy.score}/10, so I've capped it at an easy ${wordDist(run.distanceMi)}.`);
     if (energy.level === 'good') why.push(`Energy is ${energy.score}/10 — a good day to run.`);
     if (run.kind === 'long') {
-      alternative = `Shorter option: an easy ${Math.max(3, round1(run.distanceMi * 0.55))} miles, or split it into a run and a walk later.`;
+      alternative = `Shorter option: an easy ${wordDist(Math.max(3, round1(run.distanceMi * 0.55)))}, or split it into a run and a walk later.`;
     } else {
-      alternative = `If you're tired or short on time: a ${Math.max(1.5, round1(run.distanceMi * 0.6))}-mile easy run or a 2-mile walk.`;
+      alternative = `If you're tired or short on time: a ${adjDist(Math.max(1.5, round1(run.distanceMi * 0.6)))} easy run or a ${adjDist(2)} walk.`;
     }
-    if (day.dayType === 'nans') {
-      prep.push(`Pack your running kit and shoes${day.leaveAt ? ` before you leave at ${day.leaveAt}` : ''}.`);
+    if (day.base === 'nans' || run.preferredWindow) {
+      prep.push(`Pack your kit and shoes${day.leaveAt ? ` before you leave at ${day.leaveAt}` : ''}.`);
     }
     if (late) action.summary += ' (This window has passed — log it if you went, or mark it as skipped and the plan will adjust.)';
   } else if (recWalk) {
     activity = recWalk;
-    action = { title: `${recWalk.label}: ${recWalk.distanceMi} miles`, summary: `A relaxed ${recWalk.distanceMi}-mile walk${recWalk.time ? ` around ${recWalk.time}` : ''}.` };
+    action = { title: `${recWalk.label}: ${wordDist(recWalk.distanceMi)}`, summary: `A relaxed ${adjDist(recWalk.distanceMi)} walk${recWalk.time ? ` around ${recWalk.time}` : ''}.` };
     why.push(recWalk.reason);
     alternative = 'Rest completely if you need it.';
   } else if (sessions.length === 0 && todayPlan?.windows?.length === 0) {
@@ -187,7 +201,8 @@ function composeRecommendation(c) {
   // Things to do tonight for tomorrow's session. (Upcoming days themselves are shown in "Coming up".)
   if (tomorrowPlan) {
     const tRun = tomorrowPlan.sessions.find((s) => s.type === 'run');
-    if (tomorrow.dayType === 'nans' && tRun) prep.push(`Put your running kit aside tonight for tomorrow's run from ${personalOf(profile).runFromPlace}.`);
+    if (tomorrow.base === 'nans' && tRun) prep.push(`Put your running kit aside tonight for tomorrow's run from ${personalOf(profile).runFromPlace}.`);
+    else if (tRun && ['morning', 'evening'].includes(tomorrow.base)) prep.push(`Put your kit aside tonight for tomorrow's ${tomorrow.base} session.`);
     else if (tRun?.kind === 'long') prep.push('Long run tomorrow — lay out your kit tonight and get to bed on time.');
     else if (tRun?.kind === 'lunch') prep.push('Lunchtime run tomorrow — leave your kit by the door.');
   }
@@ -222,27 +237,32 @@ export function contextFingerprint(ctx) {
   return parts.join('|');
 }
 
-/** Compact structured summary sent to the AI model. Contains no credentials. */
+/** Compact structured summary sent to the AI model. Contains no credentials. Distances are in the user's unit. */
 export function aiContext(ctx, data) {
   const { plan, status, energy, energyLog, patterns, day, tomorrow, doneToday, foodsToday, rec } = ctx;
+  setUnit(data.profile?.units);
+  const D = (mi) => round1(toUnit(mi));
+  const u = unitWord();
   const recent = data.activities
     .filter((a) => !a.deleted && !a.excluded && !a.isBaseline && a.date >= addDays(ctx.today, -10))
-    .map((a) => ({ date: a.date, type: a.type, mi: a.distanceMi, min: a.durationMin || null, effort: a.effort || null }));
+    .map((a) => ({ date: a.date, type: a.type, distance: D(a.distanceMi), minutes: a.durationMin || null, effort: a.effort || null }));
   return {
+    distanceUnit: u,
     now: { date: ctx.today, weekday: day.date && ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekday(ctx.today)], time: `${String(Math.floor(ctx.nowMin / 60)).padStart(2, '0')}:${String(ctx.nowMin % 60).padStart(2, '0')}` },
     challenge: {
       name: data.challenge.name,
-      target: status.target,
+      target: D(status.target),
+      counts: data.challenge.activityTypes,
       dates: [data.challenge.startDate, data.challenge.endDate],
-      completed: { total: status.totalMi, run: status.runMi, walk: status.walkMi },
-      remainingMi: status.remainingMi,
+      completed: { total: D(status.totalMi), byType: Object.fromEntries(Object.entries(status.byType || {}).map(([t, mi]) => [t, D(mi)])) },
+      remaining: D(status.remainingMi),
       daysRemainingInclToday: status.daysRemaining,
-      avgRequiredPerDay: round1(status.requiredPerDay),
-      vsTargetLine: status.vsTrajectory,
+      avgRequiredPerDay: D(status.requiredPerDay),
+      vsTargetLine: D(status.vsTrajectory),
       planState: plan.state,
-      plannedFutureMi: plan.plannedMi,
-      planShortfallMi: plan.shortfall,
-      planBufferMi: plan.buffer,
+      plannedFutureDistance: D(plan.plannedMi),
+      planShortfall: D(plan.shortfall),
+      planBuffer: D(plan.buffer),
       projectedCompletionDate: plan.projectedCompletionDate,
     },
     today: {
@@ -251,10 +271,10 @@ export function aiContext(ctx, data) {
       blocks: day.blocks.map((b) => `${b.start}-${b.end} ${b.kind}: ${b.label}`),
       events: day.events.map((e) => `${e.start || 'all day'}-${e.end || ''} ${e.title}`),
       periodActive: day.period.active,
-      loggedActivities: doneToday.map((a) => ({ type: a.type, mi: a.distanceMi, time: a.startTime || null })),
+      loggedActivities: doneToday.map((a) => ({ type: a.type, distance: D(a.distanceMi), minutes: a.durationMin || null, time: a.startTime || null })),
       energy: energyLog ? { energy: energy.score, sleepHours: energyLog.sleepHours ?? null, soreness: energyLog.soreness ?? null, fatigue: energyLog.fatigue ?? null, mood: energyLog.mood ?? null, notes: energyLog.notes || null } : 'not logged',
-      food: foodsToday.map((f) => ({ meal: f.meal, time: f.time, text: f.text })),
-      plannedSessions: ctx.todayPlan?.sessions.map((s) => ({ label: s.label, type: s.type, mi: s.distanceMi, time: s.time, optional: !!s.optional })) || [],
+      food: foodsToday.map((f) => ({ meal: f.meal, time: f.time, text: f.text, kcal: f.estimate?.totals?.kcal ? Math.round(f.estimate.totals.kcal) : null })),
+      plannedSessions: ctx.todayPlan?.sessions.map((s) => ({ label: s.label, type: s.type, distance: D(s.distanceMi), time: s.time, optional: !!s.optional })) || [],
     },
     nextDays: plan.days.slice(1, 6).map((d) => ({
       date: d.date,
@@ -262,7 +282,7 @@ export function aiContext(ctx, data) {
       status: d.day.status,
       events: d.day.events.map((e) => e.title),
       period: d.day.period.active,
-      sessions: d.sessions.map((s) => `${s.label} ${s.distanceMi}mi${s.time ? ' @' + s.time : ''}${s.optional ? ' (optional)' : ''}`),
+      sessions: d.sessions.map((s) => `${s.label} ${dist(s.distanceMi)}${unitWord() === 'km' ? 'km' : 'mi'}${s.time ? ' @' + s.time : ''}${s.optional ? ' (optional)' : ''}`),
     })),
     recentActivities: recent,
     patterns: patterns.findings.map((f) => f.text),
@@ -282,20 +302,20 @@ export function aiContext(ctx, data) {
 /** A short, data-driven encouragement line — chosen from the actual state, never random. */
 export function motivationLine(ctx) {
   const { status, plan, energy, doneToday } = ctx;
-  const ranToday = doneToday.some((a) => a.type === 'run');
+  const trained = doneToday.some((a) => a.type !== 'walk');
   const todayMi = round1(sumMiles(doneToday));
-  const runs = status.runCount;
-  if (status.remainingMi <= 0) return `You've reached ${status.target} miles. Everything from here is a bonus — enjoy it.`;
-  if (status.ended) return 'The challenge window has closed. Whatever the total, every mile you logged counted.';
+  const sessions = status.sessionCount;
+  if (status.remainingMi <= 0) return `You've reached ${wordDist(status.target)}. Everything from here is a bonus — enjoy it.`;
+  if (status.ended) return 'The challenge window has closed. Whatever the total, every bit you logged counted.';
   if (energy.level === 'very-low' || energy.level === 'low')
     return 'Low-energy days are part of any month. Look after yourself today — the plan has room to adapt.';
-  if (ranToday)
-    return `Another run in the bank${runs > 1 ? ` — that's ${runs} logged this challenge` : ''}. Consistency like this is what gets ${status.target} done.`;
-  if (todayMi > 0) return `${todayMi} miles already today. Every walk counts towards ${status.target}.`;
-  if (plan.state === 'ahead') return `You're ${round1(status.vsTrajectory)} miles ahead of even pace — you've earned some easier days.`;
+  if (trained) return `Another session in the bank${sessions > 1 ? ` — that's ${sessions} logged this challenge` : ''}. Consistency like this is what gets ${wordDist(status.target)} done.`;
+  if (todayMi > 0) return `${wordDist(todayMi)} already today. Every bit counts towards ${wordDist(status.target)}.`;
+  if (plan.plannable === false) return `${wordDist(status.remainingMi)} to go. Log each session as you do it and the totals take care of themselves.`;
+  if (plan.state === 'ahead') return `You're ${wordDist(status.vsTrajectory)} ahead of even pace — you've earned some easier days.`;
   if (plan.state === 'at-risk') return "It's tight, but small changes close the gap — an extra walk here, an easy run there. You don't need heroics.";
   if (plan.state === 'behind')
-    return `You're ${round1(-status.vsTrajectory)} miles behind even pace, but your realistic plan still gets you there. One session at a time.`;
+    return `You're ${wordDist(-status.vsTrajectory)} behind even pace, but your realistic plan still gets you there. One session at a time.`;
   if (status.pct >= 75) return `Over ${Math.floor(status.pct / 5) * 5}% done. The finish line is in sight.`;
-  return `You're on track — ${round1(status.remainingMi)} miles to go and a plan that fits your week.`;
+  return `You're on track — ${wordDist(status.remainingMi)} to go and a plan that fits your week.`;
 }

@@ -204,3 +204,92 @@ test('an unavailable day ignores sessions you had planned', () => {
   assert.equal(wed.plannedMi, 0);
   assert.equal(wed.day.dayType, 'nans', 'marking unavailable keeps the calendar day type');
 });
+
+// ---------- multiple activity types, units, custom day types ----------
+import { openingBalanceDate, validateActivity } from '../src/shared/calc.js';
+import { setUnit } from '../src/shared/units.js';
+import { typeDefFor, resolveDay, defaultWeekTemplate, PLACEHOLDER_DAY_TYPES } from '../src/shared/schedule.js';
+
+test('opening balance goes on the last day of the previous week, so this week starts clear', () => {
+  // Monday 12 Oct 2026 → Sunday 11 Oct
+  assert.equal(openingBalanceDate('2026-10-12', '2026-10-01'), '2026-10-11');
+  // mid-week → still the Sunday before this week
+  assert.equal(openingBalanceDate('2026-10-15', '2026-10-01'), '2026-10-11');
+  // a challenge that started this week can't be dated before it began
+  assert.equal(openingBalanceDate('2026-10-15', '2026-10-13'), '2026-10-13');
+  // and a balance on that date leaves "this week" empty
+  const d = fixture();
+  const acts = [{ id: 'b', date: '2026-10-11', type: 'walk', distanceMi: 8, isBaseline: true }];
+  const st = challengeStatus(d.challenge, acts, '2026-10-12');
+  assert.equal(st.totalMi, 8);
+});
+
+test('every counted activity type adds to the total; boxing is time-only', () => {
+  const challenge = { ...fixture().challenge, activityTypes: ['walk', 'run', 'cycle', 'swim', 'box'] };
+  const acts = [
+    { id: '1', date: '2026-10-12', type: 'cycle', distanceMi: 12.5 },
+    { id: '2', date: '2026-10-12', type: 'swim', distanceMi: 0.6 },
+    { id: '3', date: '2026-10-12', type: 'box', distanceMi: 0, durationMin: 45 },
+    { id: '4', date: '2026-10-12', type: 'run', distanceMi: 3 },
+  ];
+  const st = challengeStatus(challenge, acts, '2026-10-12');
+  assert.equal(st.totalMi, 16.1);
+  assert.equal(st.byType.cycle, 12.5);
+  assert.equal(st.byType.box, 0);
+  assert.equal(st.sessionCount, 4);
+  // an activity type the challenge doesn't count is ignored
+  const runOnly = { ...challenge, activityTypes: ['run'] };
+  assert.equal(challengeStatus(runOnly, acts, '2026-10-12').totalMi, 3);
+});
+
+test('activity validation: distance for distance types, duration for boxing', () => {
+  assert.ok(validateActivity({ date: '2026-10-12', type: 'run', distanceMi: 0 }).distanceMi);
+  assert.deepEqual(validateActivity({ date: '2026-10-12', type: 'swim', distanceMi: 1 }), {});
+  assert.ok(validateActivity({ date: '2026-10-12', type: 'box', distanceMi: 0 }).durationMin);
+  assert.deepEqual(validateActivity({ date: '2026-10-12', type: 'box', distanceMi: 0, durationMin: 40 }), {});
+  assert.ok(validateActivity({ date: '2026-10-12', type: 'kayak', distanceMi: 3 }).type);
+});
+
+test('the planner only schedules activities the challenge counts', () => {
+  const d = fixture();
+  const walkOnly = planChallenge({ ...d, challenge: { ...d.challenge, activityTypes: ['walk'] }, today: '2026-10-12', nowMin: 480 });
+  assert.ok(walkOnly.days.every((x) => x.sessions.every((s) => s.type === 'walk')), 'no runs planned when running does not count');
+  const cyclingOnly = planChallenge({ ...d, challenge: { ...d.challenge, activityTypes: ['cycle'] }, today: '2026-10-12', nowMin: 480 });
+  assert.equal(cyclingOnly.plannable, false);
+  assert.equal(cyclingOnly.plannedMi, 0);
+  assert.notEqual(cyclingOnly.state, 'at-risk');
+  const c = buildCoaching({ ...d, challenge: { ...d.challenge, activityTypes: ['cycle'] } }, at('2026-10-14T09:00:00'));
+  assert.match(c.rec.action.title, /Log your activity/);
+});
+
+test('distances are shown in kilometres when that is the unit, and stored in miles', () => {
+  const d = fixture();
+  const profile = { ...d.profile, units: 'km' };
+  const c = buildCoaching({ ...d, profile, activities: [...d.activities, { id: 'r', date: '2026-10-14', type: 'run', distanceMi: 3.10686, startTime: '07:00' }] }, at('2026-10-14T09:00:00'));
+  setUnit('km');
+  const text = JSON.stringify([c.rec.action, c.rec.alternative, c.rec.rationale, c.rec.preparation]);
+  assert.match(c.rec.action.title, /5-km run done/);
+  assert.doesNotMatch(text, /\bmiles?\b|\bmi\b/);
+  assert.equal(challengeStatus(d.challenge, d.activities, '2026-10-12').totalMi, 23.7, 'the stored figure is still miles');
+  setUnit('mi');
+});
+
+test('custom day types: your names, and behaviour from their base', () => {
+  const dayTypes = [...PLACEHOLDER_DAY_TYPES, { id: 'c-long', label: 'Long-run Sunday', base: 'flex' }];
+  assert.deepEqual(PLACEHOLDER_DAY_TYPES.map((t) => t.label), ['Office day', 'Work from home', 'Morning movement', 'Evening movement', 'Weekend', 'Too busy']);
+  assert.equal(typeDefFor('c-long', { dayTypes }).label, 'Long-run Sunday');
+  assert.equal(typeDefFor('c-long', { dayTypes }).base, 'flex');
+
+  const d = fixture();
+  const mapping = { 1: 'evening', 2: 'morning', 3: 'off', 4: 'office', 5: 'wfh', 6: 'c-long', 0: 'weekend' };
+  const cal = { ...d.cal, dayTypes, weekTemplate: defaultWeekTemplate(mapping, { personal: d.cal.personal, dayTypes }) };
+  assert.equal(resolveDay('2026-10-12', cal).label, 'Evening movement');
+  assert.equal(resolveDay('2026-10-14', cal).label, 'Too busy');
+  const plan = planChallenge({ ...d, cal, today: '2026-10-12', nowMin: 360 });
+  const mon = plan.days.find((x) => x.date === '2026-10-12');
+  const run = mon.sessions.find((s) => s.type === 'run');
+  assert.ok(run, 'an evening-movement day anchors a run in its evening window');
+  assert.ok(run.time >= '17:30' && run.time < '19:30', run.time);
+  assert.equal(plan.days.find((x) => x.date === '2026-10-14').plannedMi, 0, 'a "too busy" day plans nothing');
+  assert.ok(plan.days.find((x) => x.date === '2026-10-13').sessions.some((s) => s.time && s.time < '08:30'), 'morning movement uses the early window');
+});

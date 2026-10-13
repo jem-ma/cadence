@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useStore, api } from '../lib/store.jsx';
-import { Field, Seg, Scale, Sheet, Icon, Confirm, Banner } from './ui.jsx';
+import { Field, Seg, Scale, Sheet, Icon, Confirm, Banner, ActivityPills, UnitSeg } from './ui.jsx';
 import { formatDate, minToTime, nowMinutes, toISODate, timeToMin, addDays, endOfMonth } from '../shared/dates.js';
-import { KM_PER_MILE, round2, validateActivity, countsToward } from '../shared/calc.js';
+import { round2, validateActivity, countsToward } from '../shared/calc.js';
+import { toUnit, toMiles, fmtDist, wordDist } from '../shared/units.js';
+import { ACTIVITY_ORDER, isDistanceType, typeNoun } from '../shared/activities.js';
 import { BLOCK_KINDS, DAY_STATUSES, DAY_TYPES, blocksForType, dayTypeOptions, resolveDay } from '../shared/schedule.js';
 
 const nowTime = (now) => minToTime(nowMinutes(now));
@@ -21,12 +23,21 @@ function parseDuration(v) {
   return isNaN(n) ? NaN : n;
 }
 
+const PRESETS = {
+  mi: { run: [2, 3.1, 4, 5, 6.2, 8], walk: [1, 2, 3, 5], cycle: [10, 20, 30, 50], swim: [0.5, 1, 1.5] },
+  km: { run: [3, 5, 8, 10, 15, 21.1], walk: [2, 3, 5, 8], cycle: [15, 30, 50, 80], swim: [0.5, 1, 1.5, 2] },
+};
+const presetLabel = (unit, p) => (unit === 'mi' ? (p === 3.1 ? '5K' : p === 6.2 ? '10K' : `${p} mi`) : p === 5 ? '5K' : p === 10 ? '10K' : p === 21.1 ? 'Half' : `${p} km`);
+
 export function ActivityForm({ initial, defaultType = 'run', onClose }) {
-  const { today, now, actions, notify, challenge, coaching } = useStore();
+  const { today, now, actions, notify, challenge, coaching, units } = useStore();
   const editing = !!initial?.id;
-  const [type, setType] = useState(initial?.type || defaultType);
-  const [unit, setUnit] = useState('mi');
-  const [dist, setDist] = useState(initial?.distanceMi != null ? String(initial.distanceMi) : '');
+  const counted = ACTIVITY_ORDER.filter((t) => (challenge?.activityTypes || ['run', 'walk']).includes(t));
+  const allowed = initial?.type && !counted.includes(initial.type) ? [...counted, initial.type] : counted;
+  const firstType = initial?.type || (allowed.includes(defaultType) ? defaultType : allowed[0] || 'run');
+  const [type, setType] = useState(firstType);
+  const [unit, setUnit] = useState(units);
+  const [dist, setDist] = useState(initial?.distanceMi > 0 ? String(Math.round(toUnit(initial.distanceMi, units) * 100) / 100) : '');
   const [dur, setDur] = useState(initial?.durationMin != null ? String(initial.durationMin) : '');
   const [date, setDate] = useState(initial?.date || today);
   const [time, setTime] = useState(initial?.startTime || (editing ? '' : nowTime(now)));
@@ -37,8 +48,14 @@ export function ActivityForm({ initial, defaultType = 'run', onClose }) {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const distanceMi = unit === 'km' ? Number(dist) / KM_PER_MILE : Number(dist);
-  const presets = type === 'run' ? [2, 3.1, 4, 5, 6.2, 8] : [1, 2, 3, 5];
+  const hasDistance = isDistanceType(type);
+  const distanceMi = hasDistance ? toMiles(Number(dist), unit) : 0;
+  const presets = PRESETS[unit][type] || [];
+  const changeUnit = (u) => {
+    if (u === unit) return;
+    if (dist !== '' && !isNaN(Number(dist))) setDist(String(Math.round(toUnit(toMiles(Number(dist), unit), u) * 100) / 100));
+    setUnit(u);
+  };
 
   const save = async (force = false) => {
     const durationMin = parseDuration(dur);
@@ -54,7 +71,8 @@ export function ActivityForm({ initial, defaultType = 'run', onClose }) {
       await actions.reload();
       const counts = challenge && countsToward({ ...doc, excluded: initial?.excluded }, challenge);
       const left = coaching ? Math.max(0, coaching.status.remainingMi - (counts ? doc.distanceMi - (initial?.distanceMi || 0) : 0)) : null;
-      notify(`${editing ? 'Updated' : 'Logged'} ${doc.distanceMi} mi ${type}${counts && left != null ? ` — ${left.toFixed(1)} mi to go` : ''}`);
+      const what = hasDistance ? `${fmtDist(doc.distanceMi)} ${typeNoun(type).toLowerCase()}` : `${doc.durationMin} min ${typeNoun(type).toLowerCase()}`;
+      notify(`${editing ? 'Updated' : 'Logged'} ${what}${counts && hasDistance && left != null ? ` — ${wordDist(left)} to go` : ''}`);
       onClose();
     } catch (e) {
       if (e.status === 409 && e.body?.duplicate) setDup(e.body.duplicate);
@@ -88,7 +106,7 @@ export function ActivityForm({ initial, defaultType = 'run', onClose }) {
 
   return (
     <Sheet
-      title={editing ? 'Edit activity' : `Log a ${type}`}
+      title={editing ? 'Edit activity' : type === 'box' ? 'Log boxing' : `Log a ${typeNoun(type).toLowerCase()}`}
       onClose={onClose}
       footer={
         <>
@@ -125,8 +143,8 @@ export function ActivityForm({ initial, defaultType = 'run', onClose }) {
       {dup && (
         <div style={{ marginBottom: 12 }}>
           <Banner kind="warn">
-            This looks like an activity you’ve already logged: {dup.type} of {dup.distanceMi} mi on {formatDate(dup.date, { short: true })}
-. Save anyway only if it’s a separate activity.
+            This looks like something you’ve already logged: {typeNoun(dup.type).toLowerCase()}
+            {isDistanceType(dup.type) ? ` of ${fmtDist(dup.distanceMi)}` : ''} on {formatDate(dup.date, { short: true })}. Save anyway only if it’s a separate activity.
             <div className="row" style={{ marginTop: 8 }}>
               <button className="btn small" onClick={() => setDup(null)}>
                 Don’t save
@@ -139,30 +157,35 @@ export function ActivityForm({ initial, defaultType = 'run', onClose }) {
         </div>
       )}
       <div className="stack">
-        <Seg full value={type} onChange={setType} ariaLabel="Activity type" options={[{ value: 'run', label: 'Run' }, { value: 'walk', label: 'Walk' }]} />
-        <Field label="Distance" error={errors.distanceMi} hint={unit === 'km' && dist ? `= ${distanceMi.toFixed(2)} miles` : null}>
-          <div className="row">
-            <input className={`input grow ${errors.distanceMi ? 'invalid' : ''}`} inputMode="decimal" placeholder="0.0" value={dist} onChange={(e) => setDist(e.target.value.replace(',', '.'))} aria-label="Distance" />
-            <Seg value={unit} onChange={setUnit} ariaLabel="Units" options={[{ value: 'mi', label: 'mi' }, { value: 'km', label: 'km' }]} />
-          </div>
-          {!editing && (
-            <div className="row wrap" style={{ marginTop: 4 }}>
-              {presets.map((p) => (
-                <button key={p} type="button" className="chip" style={{ cursor: 'pointer', border: 'none' }} onClick={() => { setUnit('mi'); setDist(String(p)); }}>
-                  {p === 3.1 ? '5K' : p === 6.2 ? '10K' : `${p} mi`}
-                </button>
-              ))}
+        {allowed.length > 1 && (
+          <Seg full value={type} onChange={setType} ariaLabel="Activity type" options={allowed.map((t) => ({ value: t, label: typeNoun(t) }))} />
+        )}
+        {hasDistance && (
+          <Field label="Distance" error={errors.distanceMi} hint={dist && unit !== units ? `= ${fmtDist(distanceMi)}` : null}>
+            <div className="row">
+              <input className={`input grow ${errors.distanceMi ? 'invalid' : ''}`} inputMode="decimal" placeholder="0.0" value={dist} onChange={(e) => setDist(e.target.value.replace(',', '.'))} aria-label="Distance" />
+              <Seg value={unit} onChange={changeUnit} ariaLabel="Units" options={[{ value: 'mi', label: 'mi' }, { value: 'km', label: 'km' }]} />
             </div>
-          )}
-        </Field>
+            {!editing && presets.length > 0 && (
+              <div className="row wrap" style={{ marginTop: 4 }}>
+                {presets.map((p) => (
+                  <button key={p} type="button" className="chip" style={{ cursor: 'pointer', border: 'none' }} onClick={() => setDist(String(p))}>
+                    {presetLabel(unit, p)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Field>
+        )}
         <div className="form-grid">
-          <Field label="Duration" hint="Minutes, or h:mm" error={errors.durationMin}>
+          <Field label="Duration" hint={hasDistance ? 'Minutes, or h:mm' : 'How long it lasted — minutes, or h:mm'} error={errors.durationMin}>
             <input className="input" inputMode="numeric" placeholder="e.g. 35" value={dur} onChange={(e) => setDur(e.target.value)} />
           </Field>
           <Field label="Date" error={errors.date}>
             <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
         </div>
+        {!hasDistance && <p className="tiny faint" style={{ margin: 0 }}>Boxing is tracked by time. It counts as an active day but doesn’t add to your distance target.</p>}
         <details className="more" open={editing && (effort || notes || time)}>
           <summary>Time, effort and notes</summary>
           <div className="stack" style={{ marginTop: 10 }}>
@@ -289,7 +312,7 @@ export function mealForTime(min) {
   return 'dinner';
 }
 
-async function resizeImage(file, max = 900) {
+export async function resizeImage(file, max = 900) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((res, rej) => {
@@ -526,7 +549,7 @@ export function DayEditor({ date, onClose }) {
 
   const changeType = (t) => {
     setDayType(t);
-    setBlocks(blocksForType(t, cal.personal));
+    setBlocks(blocksForType(t, cal));
   };
 
   const save = async () => {
@@ -571,7 +594,7 @@ export function DayEditor({ date, onClose }) {
         <div className="form-grid">
           <Field label="Type of day">
             <select className="input" value={dayType} onChange={(e) => changeType(e.target.value)}>
-              {dayTypeOptions(cal.personal).map((o) => (
+              {dayTypeOptions(cal).map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -648,7 +671,7 @@ export function DayEditor({ date, onClose }) {
             <div className="grow">
               <div className="title">{p.title || (p.type === 'run' ? 'Run' : 'Walk')}</div>
               <div className="sub">
-                {p.distanceMi} mi{p.time ? ` at ${p.time}` : ''}
+                {fmtDist(p.distanceMi)}{p.time ? ` at ${p.time}` : ''}
               </div>
             </div>
             <button className="icon-btn" onClick={() => setSessionDraft(p)} aria-label="Edit">
@@ -759,12 +782,14 @@ function EventEditor({ draft, onDone }) {
 
 function SessionEditor({ draft, onDone }) {
   const { actions, notify } = useStore();
-  const [s, setS] = useState(draft);
+  const { units } = useStore();
+  // distances are typed in the user's unit and stored in miles
+  const [s, setS] = useState({ ...draft, distanceMi: draft.distanceMi === '' || draft.distanceMi == null ? '' : String(Math.round(toUnit(draft.distanceMi, units) * 100) / 100) });
   return (
     <div className="card tinted stack" style={{ padding: 14 }}>
       <Seg value={s.type} onChange={(type) => setS({ ...s, type })} options={[{ value: 'run', label: 'Run' }, { value: 'walk', label: 'Walk' }]} />
       <div className="form-grid">
-        <Field label="Distance (mi)">
+        <Field label={`Distance (${units})`}>
           <input className="input" inputMode="decimal" value={s.distanceMi} onChange={(e) => setS({ ...s, distanceMi: e.target.value })} />
         </Field>
         <Field label="Time">
@@ -795,7 +820,7 @@ function SessionEditor({ draft, onDone }) {
           onClick={async () => {
             const d = Number(s.distanceMi);
             if (!(d > 0)) return notify('Add a distance', 'error');
-            const doc = { ...s, distanceMi: d, status: 'planned', source: draft.source || 'user' };
+            const doc = { ...s, distanceMi: toMiles(d, units), status: 'planned', source: draft.source || 'user' };
             if (draft.id) await actions.update('plannedSessions', draft.id, doc);
             else await actions.create('plannedSessions', doc);
             notify('Session added to your calendar');
@@ -813,34 +838,41 @@ function SessionEditor({ draft, onDone }) {
 /* Challenge                                                           */
 /* ------------------------------------------------------------------ */
 export function ChallengeForm({ initial, onClose }) {
-  const { actions, notify, data, today } = useStore();
+  const { actions, notify, data, today, units } = useStore();
   const nextStart = useMemo(() => {
     const d = new Date();
     return toISODate(new Date(d.getFullYear(), d.getMonth() + 1, 1, 12));
   }, []);
   const [c, setC] = useState(
-    initial || { name: '', targetMiles: 100, startDate: nextStart, endDate: endOfMonth(nextStart), activityTypes: ['run', 'walk'], notes: '' }
+    initial || { name: '', startDate: nextStart, endDate: endOfMonth(nextStart), activityTypes: ['run', 'walk'], notes: '' }
   );
+  const [unit, setUnit] = useState(units);
+  const [target, setTarget] = useState(initial ? String(Math.round(toUnit(initial.targetMiles, units) * 10) / 10) : '100');
   const set = (k) => (e) => setC((s) => ({ ...s, [k]: e.target.value }));
+  const changeUnit = (u) => {
+    if (u === unit) return;
+    if (target !== '' && !isNaN(Number(target))) setTarget(String(Math.round(toUnit(toMiles(Number(target), unit), u) * 10) / 10));
+    setUnit(u);
+  };
   const save = async () => {
-    const target = Number(c.targetMiles);
+    const t = Number(target);
     if (!c.name.trim()) return notify('Give the challenge a name', 'error');
-    if (!(target > 0)) return notify('Target must be more than 0', 'error');
+    if (!(t > 0)) return notify('Target must be more than 0', 'error');
     if (!c.startDate || !c.endDate || c.endDate < c.startDate) return notify('End date must be after the start date', 'error');
-    if (!c.activityTypes.length) return notify('Choose at least one activity type', 'error');
-    const doc = { ...c, targetMiles: target };
+    if (!c.activityTypes.some(isDistanceType)) return notify('Choose at least one activity that has a distance', 'error');
+    const doc = { ...c, targetMiles: toMiles(t, unit) };
+    const profile = data.profile[0];
     if (initial?.id) {
       await actions.update('challenges', initial.id, doc);
       notify('Challenge updated');
     } else {
       const saved = await actions.create('challenges', { ...doc, id: `ch-${c.startDate}-${Date.now().toString(36)}` });
-      const profile = data.profile[0];
       await actions.update('profile', profile.id, { activeChallengeId: saved.id });
-      notify(`${saved.name} is now your active challenge. Previous challenges stay in Insights.`);
+      notify(`${saved.name} is now your active challenge. Previous challenges stay in Settings.`);
     }
+    if (unit !== (profile.units || 'mi')) await actions.update('profile', profile.id, { units: unit });
     onClose();
   };
-  const toggleType = (t) => setC((s) => ({ ...s, activityTypes: s.activityTypes.includes(t) ? s.activityTypes.filter((x) => x !== t) : [...s.activityTypes, t] }));
   return (
     <Sheet
       title={initial ? 'Edit challenge' : 'New challenge'}
@@ -860,19 +892,17 @@ export function ChallengeForm({ initial, onClose }) {
         <Field label="Name">
           <input className="input" value={c.name} onChange={set('name')} placeholder="November 80" />
         </Field>
+        <Field label="Target" hint="Distances across the app use the unit you pick here.">
+          <div className="field-row">
+            <input className="input" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value.replace(',', '.'))} aria-label="Target distance" />
+            <UnitSeg value={unit} onChange={changeUnit} />
+          </div>
+        </Field>
+        <Field label="What counts">
+          <ActivityPills value={c.activityTypes} onChange={(activityTypes) => setC((s) => ({ ...s, activityTypes }))} />
+          {c.activityTypes.includes('box') && <span className="hint">Boxing is tracked by time, so it doesn’t add to the distance target.</span>}
+        </Field>
         <div className="form-grid">
-          <Field label="Target (miles)">
-            <input className="input" inputMode="decimal" value={c.targetMiles} onChange={set('targetMiles')} />
-          </Field>
-          <Field label="Counts">
-            <div className="row">
-              {['run', 'walk'].map((t) => (
-                <label key={t} className="row small">
-                  <input type="checkbox" checked={c.activityTypes.includes(t)} onChange={() => toggleType(t)} /> {t === 'run' ? 'Running' : 'Walking'}
-                </label>
-              ))}
-            </div>
-          </Field>
           <Field label="Start">
             <input className="input" type="date" value={c.startDate} onChange={set('startDate')} />
           </Field>
@@ -881,7 +911,7 @@ export function ChallengeForm({ initial, onClose }) {
           </Field>
         </div>
         <Field label="Notes">
-          <textarea className="input" value={c.notes} onChange={set('notes')} />
+          <textarea className="input" value={c.notes || ''} onChange={set('notes')} />
         </Field>
         {initial && c.startDate <= today && <p className="tiny faint">Changing dates or target recalculates every total and the plan immediately. Activities are never deleted.</p>}
       </div>

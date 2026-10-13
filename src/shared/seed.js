@@ -1,5 +1,5 @@
 // Starting data. New accounts begin empty and go through first-run setup.
-import { defaultWeekTemplate, DEFAULT_PERSONAL } from './schedule.js';
+import { defaultWeekTemplate, DEFAULT_PERSONAL, PLACEHOLDER_DAY_TYPES } from './schedule.js';
 import { DEFAULT_TRAINING } from './planner.js';
 
 const DEFAULT_NUTRITION = { diet: '', allergies: [], dislikes: [], budget: 'moderate', maxCookMin: 30, targets: { kcal: null, protein: null, carbs: null, fat: null }, showNumbers: true };
@@ -19,6 +19,8 @@ const emptyCollections = () => ({
 
 /** A brand-new account: no challenge yet, a generic week, default preferences. */
 export function newUserData({ name = '' } = {}) {
+  const dayTypes = PLACEHOLDER_DAY_TYPES.map((t) => ({ ...t }));
+  const personal = { ...DEFAULT_PERSONAL, extraWalk: { ...DEFAULT_PERSONAL.extraWalk } };
   return {
     ...emptyCollections(),
     profile: [
@@ -29,12 +31,13 @@ export function newUserData({ name = '' } = {}) {
         units: 'mi',
         training: { ...DEFAULT_TRAINING },
         nutrition: { ...DEFAULT_NUTRITION },
-        personal: { ...DEFAULT_PERSONAL, extraWalk: { ...DEFAULT_PERSONAL.extraWalk } },
+        personal,
+        dayTypes,
         pantry: [],
         activeChallengeId: null,
       },
     ],
-    calendar: [{ id: 'weekTemplate', template: defaultWeekTemplate() }],
+    calendar: [{ id: 'weekTemplate', template: defaultWeekTemplate({ 1: 'wfh', 2: 'wfh', 3: 'wfh', 4: 'wfh', 5: 'wfh', 6: 'weekend', 0: 'weekend' }, { personal, dayTypes }) }],
   };
 }
 
@@ -89,7 +92,7 @@ export function seedData() {
     calendar: [
       {
         id: 'weekTemplate',
-        template: defaultWeekTemplate({ 1: 'office', 2: 'office', 3: 'nans', 4: 'office', 5: 'wfh', 6: 'weekend', 0: 'weekend' }, EXAMPLE_PERSONAL),
+        template: defaultWeekTemplate({ 1: 'office', 2: 'office', 3: 'nans', 4: 'office', 5: 'wfh', 6: 'weekend', 0: 'weekend' }, { personal: EXAMPLE_PERSONAL }),
       },
     ],
   };

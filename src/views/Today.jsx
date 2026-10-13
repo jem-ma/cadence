@@ -3,15 +3,20 @@ import { useStore, api, localNowString } from '../lib/store.jsx';
 import { useSheets } from '../App.jsx';
 import { Icon, Banner, Empty } from '../components/ui.jsx';
 import { DailyChart } from '../components/charts.jsx';
+import { resizeImage } from '../components/forms.jsx';
 import { challengeActivities, challengeStatus, countsToward, dailyTotals, round1, sumMiles, weeklyTotals } from '../shared/calc.js';
 import { addDays, dateRange, diffDays, formatDate, formatDuration, relativeDay, startOfWeek } from '../shared/dates.js';
 import { contextFingerprint, motivationLine } from '../shared/coach.js';
 import { personalOf } from '../shared/schedule.js';
 import { challengeReview } from '../shared/reviews.js';
-import { LoggedFood, RecoveryAndFuelling } from './Nutrition.jsx';
+import { RecoveryAndFuelling } from './Nutrition.jsx';
 import { dayNutritionTotals } from '../shared/nutrition.js';
 import { CalendarSection } from './Calendar.jsx';
 import { ActivityHistory } from './Challenge.jsx';
+import { dist, distFixed, fmtDist, unitShort } from '../shared/units.js';
+import { isDistanceType, typeLabel, typeNoun } from '../shared/activities.js';
+
+const LOG_ORDER = ['run', 'walk', 'cycle', 'swim', 'box'];
 
 function greeting(now) {
   const h = now.getHours();
@@ -70,13 +75,13 @@ export default function Dashboard() {
   );
 }
 
-/* ---------- Block 1: read-only progress and totals ---------- */
+/* ---------- Block 1: read-only progress and totals (compact) ---------- */
 function ProgressCard() {
   const { coaching, challenge, data, cal, today } = useStore();
   const { status } = coaching;
-  const runPct = (status.runMi / status.target) * 100;
-  const walkPct = (status.walkMi / status.target) * 100;
   const review = challengeReview({ challenge, activities: data.activities, energyLogs: data.energyLogs, foods: data.foods, cal, recommendations: data.recommendations, today });
+  const counted = challenge.activityTypes || ['run', 'walk'];
+  const distTypes = LOG_ORDER.filter((t) => counted.includes(t) && isDistanceType(t));
 
   // This week (Mon–Sun, clipped to the challenge). "Needed" is fixed at the start of the week;
   // "needed per week from now" moves as you log distance.
@@ -85,73 +90,65 @@ function ProgressCard() {
   const inWeek = challengeActivities(data.activities, challenge).filter((a) => a.date >= ws && a.date <= we);
   const weekDone = sumMiles(inWeek);
   const atWeekStart = challengeStatus(challenge, data.activities.filter((a) => a.date < ws), ws);
-  const weekNeeded = round1(atWeekStart.requiredPerDay * (diffDays(ws, we) + 1));
-  const weekLeft = round1(Math.max(0, weekNeeded - weekDone));
-  const perWeekNow = round1(status.requiredPerDay * 7);
+  const weekNeeded = atWeekStart.requiredPerDay * (diffDays(ws, we) + 1);
+  const weekLeft = Math.max(0, weekNeeded - weekDone);
+  const perWeekNow = status.requiredPerDay * 7;
   const inChallenge = today >= challenge.startDate && today <= challenge.endDate;
+  const boxMinutes = counted.includes('box')
+    ? challengeActivities(data.activities, challenge)
+        .filter((a) => a.type === 'box')
+        .reduce((t, a) => t + Number(a.durationMin || 0), 0)
+    : null;
 
   return (
     <section className="card hero compact" aria-label="Challenge progress">
       <div className="hero-row">
-        <div className="hero-total">
-          <div className="hero-big num">
-            {status.totalMi.toFixed(1)}
-            <small>/ {status.target} mi</small>
-          </div>
+        <div className="hero-total hero-big num">
+          {distFixed(status.totalMi)}
+          <small>
+            / {dist(status.target)} {unitShort()}
+          </small>
         </div>
         <div className="hero-bar">
-          <div className="row between tiny muted" style={{ marginBottom: 6 }}>
+          <div className="row between tiny muted" style={{ marginBottom: 4 }}>
             <span>Completed</span>
             <span className="num">{status.pct.toFixed(0)}%</span>
           </div>
           <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={status.target} aria-valuenow={status.totalMi} aria-label="Distance completed">
-            <span className="run" style={{ width: `${Math.min(100, runPct)}%` }} />
-            <span className="walk" style={{ width: `${Math.min(100 - Math.min(100, runPct), walkPct)}%` }} />
+            {distTypes.map((t) => (
+              <span key={t} className={t} style={{ width: `${Math.min(100, ((status.byType?.[t] || 0) / status.target) * 100)}%` }} />
+            ))}
           </div>
         </div>
       </div>
-      <div className="kpi-row top-kpis">
-        <Kpi label="Running" value={status.runMi.toFixed(1)} unit="mi" dot="run" />
-        <Kpi label="Walking" value={status.walkMi.toFixed(1)} unit="mi" dot="walk" />
-        <Kpi label="Remaining" value={status.remainingMi.toFixed(1)} unit="mi" />
-        <Kpi label="Days left" value={status.daysRemaining} unit={`of ${status.totalDays}`} />
-      </div>
-      <div className="stats stats-4 stats-compact">
-        {inChallenge && <Stat label="This week" value={weekDone.toFixed(1)} unit={`of ${weekNeeded.toFixed(1)} needed`} />}
-        {inChallenge && <Stat label="Left this week" value={weekLeft.toFixed(1)} unit="mi" />}
-        <Stat label="Needed per week" value={perWeekNow.toFixed(1)} unit="mi" />
-        <Stat label="Needed per day" value={status.requiredPerDay.toFixed(1)} unit="mi avg" />
-        <Stat label="vs. even pace" value={`${status.vsTrajectory > 0 ? '+' : ''}${status.vsTrajectory.toFixed(1)}`} unit="mi" />
-        <Stat label="Runs logged" value={review.runCount} unit={review.longest ? `longest ${review.longest.toFixed(1)} mi` : ''} />
-        <Stat label="Active days" value={review.activeDays} unit="days" />
+      <div className="stat-strip">
+        {distTypes.map((t) => (
+          <Cell key={t} dot={t} label={typeLabel(t)} value={distFixed(status.byType?.[t] || 0)} unit={unitShort()} />
+        ))}
+        {boxMinutes != null && <Cell dot="box" label="Boxing" value={boxMinutes} unit="min" />}
+        <Cell label="Remaining" value={distFixed(status.remainingMi)} unit={unitShort()} />
+        <Cell label="Days left" value={status.daysRemaining} unit={`of ${status.totalDays}`} />
+        {inChallenge && <Cell label="This week" value={`${dist(weekDone)}/${dist(weekNeeded)}`} unit={unitShort()} />}
+        {inChallenge && <Cell label="Left this week" value={distFixed(weekLeft)} unit={unitShort()} />}
+        <Cell label="Needed/week" title="Needed per week from now" value={distFixed(perWeekNow)} unit={unitShort()} />
+        <Cell label="Needed/day" title="Needed per day from now (average)" value={distFixed(status.requiredPerDay)} unit={unitShort()} />
+        <Cell label="Sessions" value={status.sessionCount} unit={counted.includes('run') && review.longest ? `longest ${dist(review.longest)}` : ''} />
+        <Cell label="Active days" value={review.activeDays} unit="" />
       </div>
     </section>
   );
 }
 
-function Kpi({ label, value, unit, dot }) {
+function Cell({ label, value, unit, dot, title }) {
   return (
-    <div className="kpi">
-      <div className="l">
+    <div className="cell" title={title}>
+      <div className="cell-l">
         {dot && <i className={`dot ${dot}`} />}
         {label}
       </div>
-      <div className="v num">
-        {value} <small className="tiny faint">{unit}</small>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, unit, dot }) {
-  return (
-    <div className="stat">
-      <div className="label">
-        {dot && <i className={`dot ${dot}`} />}
-        {label}
-      </div>
-      <div className="value">
-        {value} <small>{unit}</small>
+      <div className="cell-v num">
+        {value}
+        {unit ? <small> {unit}</small> : null}
       </div>
     </div>
   );
@@ -203,8 +200,11 @@ function TodayCard() {
         <div className="t-tile">
           <div className="mini-head">Distance</div>
           <div className="t-value num">
-            {doneMi.toFixed(1)}
-            <small> / {plannedMi.toFixed(1)} mi</small>
+            {distFixed(doneMi)}
+            <small>
+              {' '}
+              / {distFixed(plannedMi)} {unitShort()}
+            </small>
           </div>
           <div className="progress thin">
             <span className="run" style={{ width: `${pct}%` }} />
@@ -212,7 +212,7 @@ function TodayCard() {
           <div className="t-sub">completed / planned</div>
         </div>
 
-        <button className="t-tile t-btn" onClick={() => open('energy', { initial: e || undefined })} aria-label={e ? 'Edit energy' : 'Log energy'}>
+        <button className="t-tile t-btn t-small" onClick={() => open('energy', { initial: e || undefined })} aria-label={e ? 'Edit energy' : 'Log energy'}>
           <div className="mini-head">Energy</div>
           {e ? (
             <>
@@ -220,26 +220,20 @@ function TodayCard() {
                 {e.energy}
                 <small>/10</small>
               </div>
-              <div className="energy-dots" aria-hidden="true">
-                {Array.from({ length: 10 }, (_, i) => (
-                  <i key={i} className={i < e.energy ? 'on' : ''} />
-                ))}
-              </div>
-              <div className="t-sub">
-                at {e.time}
-                {[e.sleepHours ? `${e.sleepHours} h sleep` : null, e.soreness ? `soreness ${e.soreness}` : null, e.cycle].filter(Boolean).map((x) => ` · ${x}`)}
-              </div>
+              <div className="t-sub">at {e.time}</div>
             </>
           ) : (
             <>
               <div className="t-value faint">–</div>
-              <div className="t-sub">Not logged yet</div>
+              <div className="t-sub">Not logged</div>
             </>
           )}
         </button>
 
         <div className="t-tile">
-          <div className="mini-head">Intake <span className="est">(estimated)</span></div>
+          <div className="mini-head">
+            Intake <span className="est">(estimated)</span>
+          </div>
           {showNumbers && nut.estimatedEntries > 0 ? (
             <>
               <div className="t-value num">
@@ -268,13 +262,12 @@ function TodayCard() {
 
       <div className="today-main">
         <div className="today-plan">
-          <div className="mini-head">Your plan</div>
           <div className="action-title">{rec.action.title}</div>
           <p style={{ margin: 0 }}>{rec.action.summary}</p>
           {rec.activity && (
             <div className="metaline">
               <span className={`chip ${rec.activity.type}`}>
-                <Icon name={rec.activity.type} width="14" height="14" /> {rec.activity.distanceMi} mi
+                <Icon name={rec.activity.type} width="14" height="14" /> {fmtDist(rec.activity.distanceMi)}
               </span>
               {rec.activity.durationMin ? <span>≈ {formatDuration(rec.activity.durationMin)}</span> : null}
               {rec.suggestedTime && <span>{rec.suggestedTime}</span>}
@@ -294,12 +287,134 @@ function TodayCard() {
           )}
         </div>
 
-        <div className="today-food">
-          <div className="mini-head">Food logged</div>
-          <LoggedFood />
-        </div>
+        <FoodLogger />
       </div>
     </section>
+  );
+}
+
+/* ---------- "What did you eat today?" ---------- */
+function FoodLogger() {
+  const { today, data, actions, notify, now, challenge, integrations, profile } = useStore();
+  const { open } = useSheets();
+  const [text, setText] = useState('');
+  const [photo, setPhoto] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const foods = data.foods.filter((f) => f.date === today).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const aiOn = integrations?.ai?.enabled;
+  const showNumbers = profile.nutrition?.showNumbers !== false;
+
+  const submit = async (ev) => {
+    ev?.preventDefault();
+    if (busy || (!text.trim() && !photo)) return;
+    setBusy(true);
+    try {
+      const r = await api('/food/log', { method: 'POST', body: { text, photo, localNow: localNowString(now), challengeId: challenge?.id } });
+      setResult(r);
+      setText('');
+      setPhoto(null);
+      await actions.reload();
+      if (r.aiError) notify(`AI wasn’t available (${r.aiError}) — used the built-in food list`, 'error');
+    } catch (e) {
+      notify(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const est = result?.estimate;
+  const totals = est?.totals;
+  const lastId = foods[foods.length - 1]?.id;
+
+  return (
+    <div className="today-food" id="food-logger">
+      <div className="mini-head">What did you eat today?</div>
+      <form onSubmit={submit} className="food-form">
+        <textarea
+          id="food-input"
+          className="input"
+          rows={2}
+          value={text}
+          placeholder="e.g. Porridge with banana and peanut butter"
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && submit(e)}
+          aria-label="What did you eat today?"
+        />
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn small primary" disabled={busy || (!text.trim() && !photo)}>
+            {busy ? 'Estimating…' : 'Save'}
+          </button>
+          <label className="btn small ghost" style={{ cursor: 'pointer' }} title={aiOn ? 'Add a photo — the AI can use it' : 'Add a photo (stored with the entry)'}>
+            <Icon name="camera" /> {photo ? 'Photo added' : 'Photo'}
+            <input type="file" accept="image/*" capture="environment" hidden onChange={async (e) => e.target.files[0] && setPhoto(await resizeImage(e.target.files[0]))} />
+          </label>
+          {photo && (
+            <button type="button" className="link-btn tiny" onClick={() => setPhoto(null)}>
+              Remove
+            </button>
+          )}
+        </div>
+      </form>
+
+      {result && (
+        <div className="meal-result" role="status">
+          <div className="mr-head">
+            <span>
+              Saved · <span className="cap">{result.entry.meal}</span>
+            </span>
+            <span>
+              <button className="link-btn tiny" onClick={() => open('food', { initial: result.entry })}>
+                Edit
+              </button>
+              <button className="icon-btn" aria-label="Dismiss" onClick={() => setResult(null)}>
+                <Icon name="x" width="14" height="14" />
+              </button>
+            </span>
+          </div>
+          {showNumbers && totals && est.confidence !== 'none' ? (
+            <>
+              <div className="mr-est num">
+                <strong>≈{Math.round(totals.kcal)} kcal</strong> · {Math.round(totals.carbs)} g carbs · {Math.round(totals.protein)} g protein · {Math.round(totals.fat)} g fat
+              </div>
+              <div className="tiny faint">
+                Estimate ({est.source === 'ai' ? 'AI' : 'typical portions'}, {est.confidence} confidence)
+                {est.items?.length > 0 && ` — recognised: ${est.items.map((i) => i.name).join(', ')}`}
+                {est.assumptions?.length > 0 && `. Assumed: ${est.assumptions.join('; ')}`}. Tap Edit to correct it.
+              </div>
+            </>
+          ) : (
+            <div className="tiny faint">No nutrition estimate for this one — tap Edit to add numbers yourself.</div>
+          )}
+          {result.coach?.text && (
+            <div className="mr-coach">
+              <Icon name={result.coach.source === 'ai' ? 'spark' : 'list'} width="14" height="14" />
+              <div>
+                <span className="tiny faint">{result.coach.source === 'ai' ? 'AI coach' : 'Coach'}</span>
+                <div>{result.coach.text}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {foods.length > 0 && (
+        <ul className="food-items">
+          {foods.map((f) => (
+            <li key={f.id}>
+              <button className="food-block" onClick={() => open('food', { initial: f })} aria-label={`Edit ${f.text}`}>
+                <span className="fi-meta">
+                  <span className="cap">{f.meal}</span> · {f.time}
+                  {showNumbers && f.estimate?.totals && f.estimate.confidence !== 'none' && <> · ≈{Math.round(f.estimate.totals.kcal)} kcal</>}
+                </span>
+                <span className="fi-text">{f.text}</span>
+                {!result && f.id === lastId && f.coach?.text && <span className="fi-coach">{f.coach.text}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -364,17 +479,23 @@ function CoachNote({ recDoc }) {
 
 function LogButtons() {
   const { open } = useSheets();
+  const { challenge } = useStore();
+  const counted = challenge?.activityTypes || ['run', 'walk'];
+  const types = LOG_ORDER.filter((t) => counted.includes(t));
+  const focusFood = () => {
+    const el = document.getElementById('food-input');
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el?.focus({ preventScroll: true });
+  };
   return (
     <div className="quick" role="group" aria-label="Log">
-      <button className="run" onClick={() => open('activity', { defaultType: 'run' })}>
-        <Icon name="run" />
-        Log run
-      </button>
-      <button className="walk" onClick={() => open('activity', { defaultType: 'walk' })}>
-        <Icon name="walk" />
-        Log walk
-      </button>
-      <button onClick={() => open('food')}>
+      {types.map((t) => (
+        <button key={t} className={t} onClick={() => open('activity', { defaultType: t })}>
+          <Icon name={t} />
+          Log {typeNoun(t).toLowerCase()}
+        </button>
+      ))}
+      <button onClick={focusFood}>
         <Icon name="food" />
         Log food
       </button>
@@ -390,12 +511,13 @@ function LogButtons() {
 function DailyMileage() {
   const { coaching, challenge, data, today } = useStore();
   const { status, plan } = coaching;
+  const counted = challenge.activityTypes || ['run', 'walk'];
+  const distTypes = LOG_ORDER.filter((t) => counted.includes(t) && isDistanceType(t));
   const totals = dailyTotals(data.activities.filter((a) => !a.isBaseline && countsToward(a, challenge)), challenge.startDate, challenge.endDate);
   const baseline = sumMiles(data.activities.filter((a) => a.isBaseline && countsToward(a, challenge)));
   const days = dateRange(challenge.startDate, challenge.endDate).map((d) => ({
     date: d,
-    run: totals[d]?.run || 0,
-    walk: totals[d]?.walk || 0,
+    parts: Object.fromEntries(distTypes.map((t) => [t, totals[d]?.[t] || 0])),
     planned: d >= today ? plan.plannedByDate[d] || 0 : 0,
     isToday: d === today,
     isPast: d < today,
@@ -403,26 +525,24 @@ function DailyMileage() {
   return (
     <section className="card">
       <div className="card-head wrap-head">
-        <h3>Daily mileage</h3>
+        <h3>Daily distance</h3>
         <div className="legend">
-          <span>
-            <i className="dot run" />
-            Run
-          </span>
-          <span>
-            <i className="dot walk" />
-            Walk
-          </span>
+          {distTypes.map((t) => (
+            <span key={t}>
+              <i className={`dot ${t}`} />
+              {typeNoun(t)}
+            </span>
+          ))}
           <span>
             <i className="dot plan" />
             Planned
           </span>
         </div>
       </div>
-      <DailyChart days={days} guide={status.requiredPerDay} guideLabel={`${status.requiredPerDay.toFixed(1)} mi/day needed`} />
+      <DailyChart days={days} types={distTypes} guide={status.requiredPerDay} guideLabel={`${dist(status.requiredPerDay)} ${unitShort()}/day needed`} />
       {baseline > 0 && (
         <p className="tiny faint" style={{ margin: '6px 0 0' }}>
-          Not shown by day: {baseline.toFixed(1)} mi opening balance from before you started using Cadence.
+          Not shown by day: {fmtDist(baseline)} opening balance from before you started using Cadence.
         </p>
       )}
     </section>
@@ -437,12 +557,12 @@ function WhatWorked() {
   const extra = personalOf(cal).extraWalk;
   const bestWeek = weeklyTotals(challenge, data.activities.filter((a) => !a.isBaseline)).sort((a, b) => b.total - a.total)[0];
   const blocks = [
-    r.bestDayType && { l: 'Most productive days', v: r.bestDayType.label, s: `${r.bestDayType.mi} mi` },
-    r.bestWeekday && { l: 'Strongest weekday', v: r.bestWeekday.name, s: `${r.bestWeekday.mi} mi` },
-    extra.enabled && { l: extra.label, v: r.extendedWalks, s: r.extendedWalks ? `≈${Math.round(r.extendedWalks * extra.mi * 10) / 10} mi added` : 'none yet' },
+    r.bestDayType && { l: 'Most productive days', v: r.bestDayType.label, s: fmtDist(r.bestDayType.mi) },
+    r.bestWeekday && { l: 'Strongest weekday', v: r.bestWeekday.name, s: fmtDist(r.bestWeekday.mi) },
+    extra.enabled && { l: extra.label, v: r.extendedWalks, s: r.extendedWalks ? `≈${fmtDist(r.extendedWalks * extra.mi)} added` : 'none yet' },
     { l: 'Average energy', v: r.energyAvg != null ? `${r.energyAvg}/10` : '–', s: `${r.energyDays} ${r.energyDays === 1 ? 'day' : 'days'} logged` },
     { l: 'Food logged', v: r.foodEntries, s: r.foodEntries === 1 ? 'entry' : 'entries' },
-    bestWeek && bestWeek.total > 0 && { l: 'Best week', v: `${bestWeek.total.toFixed(1)} mi`, s: `w/c ${formatDate(bestWeek.weekStart, { short: true, weekday: false })}` },
+    bestWeek && bestWeek.total > 0 && { l: 'Best week', v: fmtDist(bestWeek.total), s: `w/c ${formatDate(bestWeek.weekStart, { short: true, weekday: false })}` },
   ].filter(Boolean);
   return (
     <section aria-label="What's working">
@@ -483,7 +603,7 @@ function ComingUp() {
       </div>
       <div className="carousel" ref={track}>
         {days.map((d) => {
-          const total = Math.round(d.sessions.reduce((s, x) => s + x.distanceMi, 0) * 10) / 10;
+          const total = d.sessions.reduce((s, x) => s + x.distanceMi, 0);
           const statusLabel = { normal: d.day.label, unavailable: 'No exercise', rest: 'Rest day', busy: 'Busy' }[d.day.status];
           return (
             <article
@@ -502,7 +622,7 @@ function ComingUp() {
                   {d.day.planLocked ? ' · your plan' : ''}
                 </div>
               </div>
-              <div className="day-card-total num">{total ? `${total} mi` : '—'}</div>
+              <div className="day-card-total num">{total ? fmtDist(total) : '—'}</div>
               <div className="stack" style={{ gap: 8 }}>
                 {d.sessions.length === 0 && <span className="small faint">{d.day.status === 'normal' ? 'Rest' : d.notes[0]}</span>}
                 {d.sessions.map((s, i) => (
@@ -510,7 +630,7 @@ function ComingUp() {
                     <div className="row" style={{ gap: 6, alignItems: 'baseline' }}>
                       <i className={`dot ${s.type}`} />
                       <span className="grow">
-                        {s.label} · {s.distanceMi} mi
+                        {s.label} · {fmtDist(s.distanceMi)}
                         {s.time && <span className="faint"> · {s.time}</span>}
                       </span>
                     </div>

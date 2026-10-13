@@ -84,9 +84,9 @@ Cadence then opens full screen with its own icon. It needs a connection to load 
 
 With `ANTHROPIC_API_KEY` set:
 - **Coach's note:** each person gets a short note in the Today block, written once a day from a summary of their progress, plan, energy and food. They can tap Refresh to get a new one.
-- **Food estimates:** typed meals (and photos) are estimated by AI instead of the built-in food list.
+- **"What did you eat today?":** typed meals (and photos) are estimated and answered with a short coach response in a single AI call. The meal type is chosen from the time of day.
 
-Without a key, both are simply off: the note is hidden and food estimates use the built-in list.
+Without a key, the note is hidden, estimates come from the built-in food list, and the response to a logged meal comes from built-in rules.
 
 Each person is limited per day to **6 notes** and **40 food estimates**. Change these with `AI_DAILY_NOTES` and `AI_DAILY_FOOD_ESTIMATES`.
 
@@ -121,15 +121,18 @@ npm run test:postgres
 ## New users' setup
 
 The first-run setup asks for:
-- **The challenge:** target, dates, what counts, and any distance already done.
-- **The usual week:** one type per weekday, chosen from office/commute day, run-straight-after day, work from home, weekend, free day, or no exercise.
-- **Week details:**
-  - where they are on run-straight-after days (shown in the plan as "Run from …")
-  - commute walking distance on office days
-  - an optional longer walk on office days, such as getting off a stop early
-- **Comfortable run distances.**
+- **The challenge:** a target in miles or km (the unit you pick is used across the app), what counts (walking, running, cycling, boxing, swimming — pick any), the dates, and any distance already done. Distance already done is dated to the last day of the previous week, so the current week starts clear.
+- **The usual week:**
+  - a list of day types, starting from suggestions (Office day, Work from home, Morning movement, Evening movement, Weekend, Too busy) that can be deleted, plus any the person adds;
+  - one day type for each day of the week.
+- **Office-day details**, only if an office day is used: commute walking and an optional longer walk.
+- **Comfortable run distances**, only if running counts.
 
 Everything can be changed later in Settings and the calendar's weekly pattern.
+
+**Activity types:** walking, running, cycling and swimming add distance to the target. Boxing is tracked by time (it counts as a session and an active day, not as distance). The planner schedules runs and walks; other activities count when they're logged.
+
+**Custom day types** behave like a flexible day with a few short windows and no long runs; their time blocks can be edited in the weekly pattern. The suggested types have sensible windows built in.
 
 ## How the coach decides
 

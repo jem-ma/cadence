@@ -1,36 +1,7 @@
 import { useStore } from '../lib/store.jsx';
-import { useSheets } from '../App.jsx';
 import { formatDuration, relativeDay } from '../shared/dates.js';
+import { fmtDist } from '../shared/units.js';
 import { recoveryAdvice, fuellingPlan } from '../shared/nutrition.js';
-
-/** Today's logged food — always small text. Tap an entry to edit or correct its estimate. */
-export function LoggedFood() {
-  const { today, data, profile } = useStore();
-  const { open } = useSheets();
-  const foods = data.foods.filter((f) => f.date === today).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-  const showNumbers = profile.nutrition?.showNumbers !== false;
-  if (!foods.length)
-    return (
-      <p className="tiny faint" style={{ margin: 0 }}>
-        Nothing yet — use Log food.
-      </p>
-    );
-  return (
-    <ul className="food-items">
-      {foods.map((f) => (
-        <li key={f.id}>
-          <button onClick={() => open('food', { initial: f })}>
-            <span className="fi-meta">
-              <span className="cap">{f.meal}</span> · {f.time}
-              {showNumbers && f.estimate?.totals && f.estimate.confidence !== 'none' && <> · ≈{Math.round(f.estimate.totals.kcal)} kcal</>}
-            </span>
-            <span className="fi-text">{f.text}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 /** Recovery (only after a run today) and fuelling ahead of the next planned run. */
 export function RecoveryAndFuelling() {
@@ -71,7 +42,7 @@ export function RecoveryAndFuelling() {
           <div className="section-title">Fuelling</div>
           <h3>{fuel.headline}</h3>
           <p className="small muted" style={{ margin: '4px 0 12px' }}>
-            {nextRun.label} · {nextRun.distanceMi} mi{nextRun.durationMin ? ` (≈${formatDuration(nextRun.durationMin)})` : ''} · {relativeDay(nextRun.date, today)}
+            {nextRun.label} · {fmtDist(nextRun.distanceMi)}{nextRun.durationMin ? ` (≈${formatDuration(nextRun.durationMin)})` : ''} · {relativeDay(nextRun.date, today)}
             {nextRun.time ? ` at ${nextRun.time}` : ''}
           </p>
           <div className="step-list">

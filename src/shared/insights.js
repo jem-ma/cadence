@@ -1,6 +1,7 @@
 // Pattern detection over logged data. Every finding states its sample size and
 // is phrased as an observation, not a diagnosis.
 import { addDays, dateRange, weekday, DAY_NAMES } from './dates.js';
+import { wordDist } from './units.js';
 import { resolveDay, periodState, typeName } from './schedule.js';
 import { round1, sumMiles } from './calc.js';
 
@@ -109,7 +110,7 @@ export function computePatterns({ energyLogs = [], activities = [], foods = [], 
     findings.push({
       key: 'energyMiles',
       title: 'Energy and mileage',
-      text: `On higher-energy days (7+) you averaged ${round1(mean(hi.map(milesOn)))} miles; on low-energy days (≤4), ${round1(mean(lo.map(milesOn)))} miles.`,
+      text: `On higher-energy days (7+) you averaged ${wordDist(mean(hi.map(milesOn)))}; on low-energy days (≤4), ${wordDist(mean(lo.map(milesOn)))}.`,
       n: hi.length + lo.length,
     });
   }
@@ -141,7 +142,7 @@ export function computePatterns({ energyLogs = [], activities = [], foods = [], 
     const rows = Object.entries(byType).filter(([, v]) => v.length >= 2).map(([t, v]) => [t, mean(v), v.length]);
     if (rows.length >= 2) {
       rows.sort((a, b) => a[1] - b[1]);
-      const label = (t) => typeName(t, cal.personal, 'plural');
+      const label = (t) => typeName(t, cal, 'plural');
       findings.push({
         key: 'dayType',
         title: 'Which days drain you',
@@ -183,7 +184,7 @@ export function computePatterns({ energyLogs = [], activities = [], foods = [], 
     findings.push({
       key: 'weekday',
       title: 'Your most productive day',
-      text: `${DAY_NAMES[best[0]]}s have contributed the most distance (${round1(best[1])} miles logged).`,
+      text: `${DAY_NAMES[best[0]]}s have contributed the most distance (${wordDist(best[1])} logged).`,
       n: acts.length,
     });
   }

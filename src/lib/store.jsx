@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { buildCoaching } from '../shared/coach.js';
 import { toISODate } from '../shared/dates.js';
+import { setUnit } from '../shared/units.js';
 
 const Ctx = createContext(null);
 
@@ -148,7 +149,9 @@ export function StoreProvider({ children }) {
       plannedSessions: data.plannedSessions,
       dayPlans: data.dayPlans || [],
       personal: profile.personal,
+      dayTypes: profile.dayTypes,
     };
+    setUnit(profile.units); // every distance on screen follows this
     const today = toISODate(now);
     const coaching = challenge
       ? buildCoaching(
@@ -156,7 +159,7 @@ export function StoreProvider({ children }) {
           now
         )
       : null;
-    return { profile, challenge, cal, today, coaching };
+    return { profile, challenge, cal, today, coaching, units: profile.units === 'km' ? 'km' : 'mi' };
   }, [data, now]);
 
   const value = { data, integrations, error, signedOut, user, now, simulated, setSimulated, actions, notify, toast, ...(derived || {}) };

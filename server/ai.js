@@ -69,7 +69,7 @@ Write:
 - "focus": one short, concrete thing to do today or tonight (at most 15 words).
 
 Rules:
-- Every number you mention must appear in the data. Don't recalculate or invent distances, dates, foods or events.
+- Every number you mention must appear in the data. Don't recalculate or invent distances, dates, foods or events. Distances are in the unit given as distanceUnit (miles or km) — use that unit and never convert.
 - Never suggest making up missed miles with big jumps, never suggest calorie restriction, never frame exercise as earning food.
 - Treat menstrual-cycle information as context only; don't assume symptoms or diagnose anything.
 - If something important is missing (e.g. no energy logged), you may gently suggest logging it, but don't lecture.`;
@@ -129,4 +129,35 @@ export async function parseFood({ text, portion, notes, photo }) {
     effort: 'low',
     maxTokens: 4000,
   });
+}
+
+const MEAL_SCHEMA = {
+  ...FOOD_SCHEMA,
+  required: [...FOOD_SCHEMA.required, 'coach_response'],
+  properties: { ...FOOD_SCHEMA.properties, coach_response: str },
+};
+
+const MEAL_SYSTEM = `You are Cadence, a personal running, walking and sports-nutrition coach. Someone has just logged what they ate. Do two things:
+
+1. Estimate its nutrition for a food journal. Your numbers are estimates, never exact: say so through the "confidence" and "assumptions" fields. Only list foods that are mentioned or clearly visible. Round kcal to the nearest 10 and macros to whole grams.
+2. Write "coach_response": 1–3 short sentences (at most 45 words), in plain British English, speaking directly to them. Say how this meal fits today — for example fuel for a run that is coming up, recovery after training, or a gap that is worth covering at the next meal — using the context. Make it specific and practical.
+
+Rules for coach_response:
+- Never suggest eating less, never mention weight loss, and never frame exercise as earning food. Eating enough matters.
+- Don't moralise about food choices. No exclamation-mark cheerleading.
+- Only use facts from the context; don't invent activities, plans or foods.
+- Distances are in the unit given as distanceUnit (miles or km).`;
+
+/** Estimate a meal AND give a short coach response, in one call. */
+export async function logMeal({ text, portion, notes, photo, context }) {
+  const content = [];
+  if (photo && /^data:image\/(jpeg|png|webp|gif);base64,/.test(photo)) {
+    const [head, data] = photo.split(',');
+    content.push({ type: 'image', source: { type: 'base64', media_type: head.slice(5, head.indexOf(';')), data } });
+  }
+  content.push({
+    type: 'text',
+    text: `They just logged: "${text}"${portion ? `\nPortion: ${portion}` : ''}${notes ? `\nNotes: ${notes}` : ''}\n\nContext (JSON):\n${JSON.stringify(context)}`,
+  });
+  return structured({ system: MEAL_SYSTEM, content, schema: MEAL_SCHEMA, effort: 'low', maxTokens: 4000 });
 }

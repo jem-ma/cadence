@@ -149,6 +149,34 @@ test('without an AI key the coach note is simply off, and food estimates use the
   assert.equal(est.body.source, 'library');
 });
 
+test('"what did you eat" saves the meal with an estimate and a built-in coach response when AI is off', async () => {
+  const r = await alice.call('/food/log', { method: 'POST', body: { text: 'Porridge with banana and peanut butter', localNow: '2026-10-14T08:10' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.entry.meal, 'breakfast', 'meal type is chosen from the time of day');
+  assert.equal(r.body.entry.time, '08:10');
+  assert.equal(r.body.entry.date, '2026-10-14');
+  assert.equal(r.body.estimate.source, 'library');
+  assert.ok(r.body.estimate.totals.kcal > 300);
+  assert.equal(r.body.coach.source, 'rules');
+  assert.ok(r.body.coach.text.length > 10);
+  const saved = (await alice.call('/state')).body.data.foods.find((f) => f.id === r.body.entry.id);
+  assert.equal(saved.coach.text, r.body.coach.text, 'the response is stored with the entry');
+  assert.equal((await alice.call('/food/log', { method: 'POST', body: { text: '   ' } })).status, 400);
+  // a meal right before a planned run gets run-aware advice
+  const before = await alice.call('/food/log', { method: 'POST', body: { text: 'Chicken wrap and crisps', localNow: '2026-10-14T16:30' } });
+  assert.equal(before.status, 200);
+  assert.equal(before.body.entry.meal, 'snack');
+});
+
+test('activity types beyond run and walk can be logged; boxing needs a duration', async () => {
+  assert.equal((await alice.call('/activities', { method: 'POST', body: { date: '2026-10-13', type: 'cycle', distanceKm: 20, durationMin: 55 } })).status, 200);
+  assert.equal((await alice.call('/activities', { method: 'POST', body: { date: '2026-10-13', type: 'box', durationMin: '' } })).status, 400);
+  const box = await alice.call('/activities', { method: 'POST', body: { date: '2026-10-13', type: 'box', durationMin: 45 } });
+  assert.equal(box.status, 200);
+  assert.equal(box.body.distanceMi, 0);
+  assert.equal((await alice.call('/activities', { method: 'POST', body: { date: '2026-10-13', type: 'box', durationMin: 45 } })).status, 409, 'same-length session the same day is flagged as a duplicate');
+});
+
 test('export, then import into another account, round-trips the data', async () => {
   const exp = await alice.call('/export.json');
   assert.equal(exp.status, 200);
