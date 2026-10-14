@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { seedData } from '../src/shared/seed.js';
 import { challengeStatus, findPossibleDuplicate } from '../src/shared/calc.js';
 import { planChallenge } from '../src/shared/planner.js';
-import { buildCoaching } from '../src/shared/coach.js';
+import { buildCoaching, mealContext } from '../src/shared/coach.js';
 import { estimateFromText } from '../src/shared/nutrition.js';
 import { addDays, weekday } from '../src/shared/dates.js';
 
@@ -292,4 +292,23 @@ test('custom day types: your names, and behaviour from their base', () => {
   assert.ok(run.time >= '17:30' && run.time < '19:30', run.time);
   assert.equal(plan.days.find((x) => x.date === '2026-10-14').plannedMi, 0, 'a "too busy" day plans nothing');
   assert.ok(plan.days.find((x) => x.date === '2026-10-13').sessions.some((s) => s.time && s.time < '08:30'), 'morning movement uses the early window');
+});
+
+test('meal coach context: intake today and yesterday, recent training and what is planned next', () => {
+  const d = fixture();
+  d.foods = [
+    { id: 'f1', date: '2026-10-13', time: '19:00', text: 'Pasta', estimate: { totals: { kcal: 600, carbs: 90, protein: 20, fat: 15 }, confidence: 'medium' } },
+    { id: 'f2', date: '2026-10-14', time: '08:00', text: 'Toast', estimate: { totals: { kcal: 200, carbs: 30, protein: 6, fat: 5 }, confidence: 'medium' } },
+    { id: 'f3', date: '2026-10-10', time: '08:00', text: 'Old breakfast', estimate: { totals: { kcal: 400, carbs: 50, protein: 10, fat: 10 }, confidence: 'medium' } },
+  ];
+  d.activities = [...d.activities, { id: 'r', date: '2026-10-13', type: 'run', distanceMi: 4.5, durationMin: 45, startTime: '18:30' }];
+  const now = at('2026-10-14T12:30');
+  const m = mealContext(buildCoaching(d, now), d, { mealSlot: 'lunch' });
+  assert.equal(m.now.time, '12:30');
+  assert.equal(m.intake.yesterday.estimatedTotals.carbsG, 90);
+  assert.deepEqual(m.intake.today.entries.map((e) => e.text), ['Toast']);
+  assert.ok(!JSON.stringify(m.intake).includes('Old breakfast'), 'only today and yesterday');
+  assert.equal(m.training.yesterday[0].distance, 4.5);
+  assert.equal(m.distanceUnit, 'miles');
+  assert.ok(Array.isArray(m.training.stillPlannedToday) && Array.isArray(m.training.plannedTomorrow));
 });

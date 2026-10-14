@@ -125,6 +125,8 @@ test('logging a meal uses one AI call for the estimate and the coach response', 
   assert.match(r.body.coach.text, /carbohydrate start/);
   const sent = JSON.stringify(calls.at(-1).body.messages);
   assert.ok(sent.includes('Porridge') && sent.includes('distanceUnit'), 'the AI is told the meal and the distance unit');
+  assert.ok(sent.includes('yesterday') && sent.includes('stillPlannedToday'), 'the AI sees recent intake and training');
+  assert.match(calls.at(-1).body.system, /today AND yesterday/);
 });
 
 test('an AI outage on refresh is reported, and the earlier note is kept', async () => {

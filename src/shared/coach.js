@@ -5,7 +5,7 @@ import { addDays, formatDuration, nowMinutes, timeToMin, weekday, toISODate } fr
 import { challengeStatus, round1, sumMiles } from './calc.js';
 import { planChallenge } from './planner.js';
 import { resolveDay, personalOf } from './schedule.js';
-import { nutritionAdvice } from './nutrition.js';
+import { nutritionAdvice, dayNutritionTotals } from './nutrition.js';
 import { latestEnergy, computePatterns } from './insights.js';
 import { setUnit, toUnit, dist, wordDist, adjDist, fmtDist, unitWord } from './units.js';
 import { typeNoun, isDistanceType } from './activities.js';
@@ -318,4 +318,59 @@ export function motivationLine(ctx) {
     return `You're ${wordDist(-status.vsTrajectory)} behind even pace, but your realistic plan still gets you there. One session at a time.`;
   if (status.pct >= 75) return `Over ${Math.floor(status.pct / 5) * 5}% done. The finish line is in sight.`;
   return `You're on track — ${wordDist(status.remainingMi)} to go and a plan that fits your week.`;
+}
+
+/**
+ * What the AI nutrition coach sees when a meal is logged: food from today and yesterday
+ * (with estimated totals), training over the last few days and what's planned next.
+ * The meal just logged isn't in the totals yet — the AI estimates it in the same call.
+ */
+export function mealContext(ctx, data, { mealSlot } = {}) {
+  setUnit(data.profile?.units);
+  const D = (mi) => round1(toUnit(mi));
+  const today = ctx.today;
+  const yesterday = addDays(today, -1);
+  const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const r0 = (n) => Math.round(n || 0);
+  const day = (date) => {
+    const foods = data.foods.filter((f) => f.date === date && !f.deleted).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    const t = dayNutritionTotals(foods);
+    return {
+      entries: foods.map((f) => {
+        const e = f.estimate?.totals;
+        return { time: f.time || null, text: f.text, ...(e && f.estimate?.confidence !== 'none' ? { kcal: r0(e.kcal), carbsG: r0(e.carbs), proteinG: r0(e.protein), fatG: r0(e.fat) } : { estimate: 'none' }) };
+      }),
+      estimatedTotals: t.estimatedEntries ? { kcal: r0(t.kcal), carbsG: r0(t.carbs), proteinG: r0(t.protein), fatG: r0(t.fat) } : null,
+      entriesWithoutEstimate: t.entries - t.estimatedEntries,
+    };
+  };
+  const acts = (from, to) =>
+    data.activities
+      .filter((a) => !a.deleted && !a.excluded && !a.isBaseline && a.date >= from && a.date <= to)
+      .sort((a, b) => (a.date + (a.startTime || '')).localeCompare(b.date + (b.startTime || '')))
+      .map((a) => ({ date: a.date, type: a.type, ...(isDistanceType(a.type) ? { distance: D(a.distanceMi) } : {}), minutes: a.durationMin || null, startTime: a.startTime || null, effort: a.effort || null }));
+  const session = (s) => ({ type: s.type, label: s.label, distance: D(s.distanceMi), time: s.time || null, optional: !!s.optional });
+  const tomorrowPlan = ctx.plan.days.find((d) => d.date === addDays(today, 1));
+  const e = ctx.energyLog;
+  return {
+    distanceUnit: unitWord(),
+    now: { date: today, time: hhmm(ctx.nowMin), mealSlot: mealSlot || null },
+    intake: {
+      note: 'Estimated from what they typed; "today" does not yet include the meal just logged.',
+      today: day(today),
+      yesterday: day(yesterday),
+    },
+    training: {
+      today: acts(today, today),
+      yesterday: acts(yesterday, yesterday),
+      previous3Days: acts(addDays(today, -4), addDays(today, -2)),
+      stillPlannedToday: (ctx.todayPlan?.sessions || []).filter((s) => !s.time || timeToMin(s.time) > ctx.nowMin).map(session),
+      plannedTomorrow: tomorrowPlan ? tomorrowPlan.sessions.map(session) : [],
+      tomorrowDayType: ctx.tomorrow?.label || null,
+    },
+    energyToday: e ? { score: ctx.energy.score, sleepHours: e.sleepHours ?? null, soreness: e.soreness ?? null, fatigue: e.fatigue ?? null } : null,
+    periodActive: !!ctx.day?.period?.active,
+    nutritionPrefs: data.profile?.nutrition || {},
+    pantry: data.profile?.pantry || [],
+  };
 }

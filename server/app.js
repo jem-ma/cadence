@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { forUser, users, assertCollection, initialiseUser, COLLECTIONS, storageInfo } from './db.js';
 import { requireUser, setSession, clearSession, hashPassword, verifyPassword, validateCredentials, attemptLogin } from './auth.js';
 import { aiStatus, coachNote, parseFood, logMeal } from './ai.js';
-import { buildCoaching, aiContext, contextFingerprint } from '../src/shared/coach.js';
+import { buildCoaching, aiContext, mealContext, contextFingerprint } from '../src/shared/coach.js';
 import { estimateFromText, mealForTime, mealFeedback } from '../src/shared/nutrition.js';
 import { timeToMin, toISODate } from '../src/shared/dates.js';
 import { isDistanceType } from '../src/shared/activities.js';
@@ -223,10 +223,7 @@ app.post('/api/food/log', wrap(async (req, res) => {
   if (aiStatus().enabled) {
     if (await takeAiAllowance(req.store, 'foods')) {
       try {
-        const summary = ctx ? { ...aiContext(ctx, data) } : { distanceUnit: 'miles' };
-        delete summary.ruleBasedDraft;
-        delete summary.nextDays;
-        delete summary.recentActivities;
+        const summary = ctx ? mealContext(ctx, data, { mealSlot: entry.meal }) : { distanceUnit: 'miles' };
         const out = await logMeal({ text: entry.text, portion, notes, photo, context: summary });
         estimate = { items: out.items, totals: out.totals, confidence: out.confidence, assumptions: out.assumptions, note: out.note, source: 'ai', unmatched: [] };
         coach = { text: out.coach_response, source: 'ai', at: new Date().toISOString() };

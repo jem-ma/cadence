@@ -84,7 +84,7 @@ Cadence then opens full screen with its own icon. It needs a connection to load 
 
 With `ANTHROPIC_API_KEY` set:
 - **Coach's note:** each person gets a short note in the Today block, written once a day from a summary of their progress, plan, energy and food. They can tap Refresh to get a new one.
-- **"What did you eat today?":** typed meals (and photos) are estimated and answered with a short coach response in a single AI call. The meal type is chosen from the time of day.
+- **"What did you eat today?":** typed meals (and photos) are estimated and answered with a short coach response in a single AI call. The response looks at food logged today and yesterday alongside training from the last five days and what's planned today and tomorrow, and ends with a specific next step. The meal type is chosen from the time of day.
 
 Without a key, the note is hidden, estimates come from the built-in food list, and the response to a logged meal comes from built-in rules.
 
