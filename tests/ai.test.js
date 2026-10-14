@@ -16,6 +16,12 @@ let fake;
 let dataDir;
 const calls = [];
 let failRemaining = 0; // the SDK retries 5xx errors twice, so an outage must outlast the retries
+let creditErrorOnce = false;
+let rejectFallbacks = false;
+const badRequest = (res, message) => {
+  res.writeHead(400, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message } }));
+};
 
 function reply(text) {
   return { id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text }], usage: { input_tokens: 10, output_tokens: 10 } };
@@ -33,6 +39,11 @@ before(async () => {
         res.writeHead(500, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'boom' } }));
       }
+      if (creditErrorOnce) {
+        creditErrorOnce = false;
+        return badRequest(res, 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.');
+      }
+      if (rejectFallbacks && 'fallbacks' in json) return badRequest(res, 'fallbacks: Extra inputs are not permitted');
       const isNote = json.system.includes("coach's note");
       const isMeal = json.system.includes('coach_response');
       const out = isNote
@@ -135,6 +146,25 @@ test('an AI outage on refresh is reported, and the earlier note is kept', async 
   assert.equal(r.status, 503);
   assert.ok(r.body.error);
   assert.match(r.body.note.note, /plan still covers/);
+});
+
+test('a failed call is refunded, and a no-credit error says so without retrying', async () => {
+  const n = calls.length;
+  creditErrorOnce = true;
+  const r = await call('/coach/note', { method: 'POST', body: { localNow: '2026-10-14T12:10', refresh: true } });
+  assert.equal(r.status, 503);
+  assert.match(r.body.error, /no credit/);
+  assert.equal(calls.length, n + 1, 'no retry for a billing problem');
+});
+
+test('if the account cannot use model fallbacks, the request is retried without them', async () => {
+  rejectFallbacks = true;
+  const n = calls.length;
+  const r = await call('/coach/note', { method: 'POST', body: { localNow: '2026-10-14T12:20', refresh: true } });
+  assert.equal(r.status, 200, 'refunded failures leave room for this refresh');
+  assert.equal(calls.length, n + 2);
+  assert.ok('fallbacks' in calls.at(-2).body && !('fallbacks' in calls.at(-1).body));
+  assert.equal(calls.at(-1).body.output_config.format.type, 'json_schema');
 });
 
 test('refresh is capped by the daily limit', async () => {

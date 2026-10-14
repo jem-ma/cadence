@@ -40,6 +40,13 @@ async function takeAiAllowance(store, kind) {
   return true;
 }
 
+// A failed AI call shouldn't count against the day's allowance.
+async function refundAiAllowance(store, kind) {
+  const u = await store.meta.get('aiUsage');
+  if (u?.date !== isoDaysAgo(0) || !(u[kind] > 0)) return;
+  await store.meta.set('aiUsage', { ...u, [kind]: u[kind] - 1 });
+}
+
 // ---------- health ----------
 app.get('/api/health', wrap(async (req, res) => {
   const hosted = Boolean(process.env.VERCEL);
@@ -229,6 +236,7 @@ app.post('/api/food/log', wrap(async (req, res) => {
         coach = { text: out.coach_response, source: 'ai', at: new Date().toISOString() };
       } catch (e) {
         aiError = e.message;
+        await refundAiAllowance(req.store, 'foods');
       }
     } else aiError = 'Daily AI limit reached';
   }
@@ -264,6 +272,7 @@ app.post('/api/coach/note', wrap(async (req, res) => {
     await req.store.put('recommendations', { ...prev, aiNote });
     res.json({ enabled: true, note: aiNote });
   } catch (e) {
+    await refundAiAllowance(req.store, 'notes');
     res.status(503).json({ error: e.message, note: prev.aiNote || null });
   }
 }));

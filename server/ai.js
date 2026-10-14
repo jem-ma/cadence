@@ -16,13 +16,29 @@ function getClient() {
   return client;
 }
 
+// Server-side model fallbacks are a beta. If the account can't use it (400), drop it and carry on.
+let useFallbacks = process.env.CADENCE_AI_FALLBACKS !== '0';
+
+async function send(params) {
+  if (useFallbacks) {
+    try {
+      return await getClient().beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' });
+    } catch (e) {
+      if (!(e instanceof Anthropic.BadRequestError) || isCreditError(e)) throw e;
+      console.warn('[ai] request with fallbacks was rejected; retrying without them:', apiMessage(e));
+      const res = await getClient().messages.create(params);
+      useFallbacks = false;
+      return res;
+    }
+  }
+  return getClient().messages.create(params);
+}
+
 async function structured({ system, content, schema, effort = 'medium', maxTokens = 16000 }) {
   try {
-    const res = await getClient().beta.messages.create({
+    const res = await send({
       model: MODEL,
       max_tokens: maxTokens,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
       thinking: { type: 'adaptive' },
       output_config: { effort, format: { type: 'json_schema', schema } },
       system,
@@ -34,6 +50,7 @@ async function structured({ system, content, schema, effort = 'medium', maxToken
     lastError = null;
     return JSON.parse(text);
   } catch (e) {
+    console.error('[ai] request failed:', e?.status ?? '', apiMessage(e));
     lastError = { message: friendly(e), at: new Date().toISOString() };
     const err = new Error(lastError.message);
     err.status = 503;
@@ -41,11 +58,22 @@ async function structured({ system, content, schema, effort = 'medium', maxToken
   }
 }
 
+/** The API's own explanation, e.g. "Your credit balance is too low…". Never contains the key. */
+function apiMessage(e) {
+  return String(e?.error?.error?.message || e?.error?.message || e?.message || '').slice(0, 200);
+}
+function isCreditError(e) {
+  return /credit balance|billing|purchase credits/i.test(apiMessage(e));
+}
+
 function friendly(e) {
+  if (isCreditError(e)) return 'The Anthropic account has no credit. Add credit at console.anthropic.com → Billing.';
   if (e instanceof Anthropic.AuthenticationError) return 'AI key is missing or invalid.';
+  if (e instanceof Anthropic.PermissionDeniedError) return `The AI key can’t use this model (${MODEL}).`;
+  if (e instanceof Anthropic.NotFoundError) return `AI model not found (${MODEL}).`;
   if (e instanceof Anthropic.RateLimitError) return 'AI service is busy (rate limited). Try again shortly.';
   if (e instanceof Anthropic.APIConnectionError) return 'Could not reach the AI service.';
-  if (e instanceof Anthropic.APIError) return `AI service error (${e.status ?? 'unknown'}).`;
+  if (e instanceof Anthropic.APIError) return `AI service error (${e.status ?? 'unknown'}): ${apiMessage(e)}`;
   return e.message || 'AI request failed.';
 }
 
