@@ -193,6 +193,16 @@ function TodayCard() {
           Today
         </div>
         <h2>{formatDate(today, { year: false })}</h2>
+        <p className="plan-summary">{rec.action.summary}</p>
+        {rec.activity && (
+          <div className="metaline">
+            <span className={`chip ${rec.activity.type}`}>
+              <Icon name={rec.activity.type} width="14" height="14" /> {fmtDist(rec.activity.distanceMi)}
+            </span>
+            {rec.activity.durationMin ? <span>≈ {formatDuration(rec.activity.durationMin)}</span> : null}
+            {rec.suggestedTime && <span>{rec.suggestedTime}</span>}
+          </div>
+        )}
         <p className="motivation">{motivationLine(coaching)}</p>
       </header>
 
@@ -260,35 +270,20 @@ function TodayCard() {
 
       <CoachNote recDoc={recDoc} />
 
-      <div className="today-main">
-        <div className="today-plan">
-          <div className="action-title">{rec.action.title}</div>
-          <p style={{ margin: 0 }}>{rec.action.summary}</p>
-          {rec.activity && (
-            <div className="metaline">
-              <span className={`chip ${rec.activity.type}`}>
-                <Icon name={rec.activity.type} width="14" height="14" /> {fmtDist(rec.activity.distanceMi)}
-              </span>
-              {rec.activity.durationMin ? <span>≈ {formatDuration(rec.activity.durationMin)}</span> : null}
-              {rec.suggestedTime && <span>{rec.suggestedTime}</span>}
-            </div>
-          )}
-          {rec.preparation?.length > 0 && (
-            <div className="prep">
-              <div className="mini-head">
-                <Icon name="bag" width="13" height="13" /> Prepare
-              </div>
-              <ul className="small">
-                {rec.preparation.map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+      {rec.preparation?.length > 0 && (
+        <div className="prep">
+          <div className="mini-head">
+            <Icon name="bag" width="13" height="13" /> Prepare
+          </div>
+          <ul className="small">
+            {rec.preparation.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
         </div>
+      )}
 
-        <FoodLogger />
-      </div>
+      <FoodLogger />
     </section>
   );
 }
@@ -482,11 +477,6 @@ function LogButtons() {
   const { challenge } = useStore();
   const counted = challenge?.activityTypes || ['run', 'walk'];
   const types = LOG_ORDER.filter((t) => counted.includes(t));
-  const focusFood = () => {
-    const el = document.getElementById('food-input');
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    el?.focus({ preventScroll: true });
-  };
   return (
     <div className="quick" role="group" aria-label="Log">
       {types.map((t) => (
@@ -495,10 +485,6 @@ function LogButtons() {
           Log {typeNoun(t).toLowerCase()}
         </button>
       ))}
-      <button onClick={focusFood}>
-        <Icon name="food" />
-        Log food
-      </button>
       <button onClick={() => open('energy')}>
         <Icon name="energy" />
         Log energy
