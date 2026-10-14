@@ -90,7 +90,7 @@ Without a key, the note is hidden, estimates come from the built-in food list, a
 
 Each person is limited per day to **6 notes** and **40 food estimates**. Change these with `AI_DAILY_NOTES` and `AI_DAILY_FOOD_ESTIMATES`.
 
-Rough cost with Claude Opus 5.5: about 2–6p per note and about 1p per food estimate, so roughly £1–3 per person per month. **Set a monthly spending limit** in your Anthropic account.
+Rough cost with Claude Opus 5.5: about 2–6p per note and about 2–4p per logged meal, so roughly £2–5 per person per month. **Set a monthly spending limit** in your Anthropic account.
 
 Mileage maths and the plan always come from Cadence's own planner. The AI only writes the note and the estimates.
 
