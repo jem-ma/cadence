@@ -12,7 +12,11 @@ export function aiStatus() {
 let client = null;
 let lastError = null;
 function getClient() {
-  if (!client) client = new Anthropic();
+  if (!client) {
+    // Organisation-level keys must say which workspace to bill: set ANTHROPIC_WORKSPACE_ID (wrkspc_…).
+    const ws = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+    client = new Anthropic(ws ? { defaultHeaders: { 'anthropic-workspace-id': ws } } : {});
+  }
   return client;
 }
 
@@ -68,6 +72,7 @@ function isCreditError(e) {
 
 function friendly(e) {
   if (isCreditError(e)) return 'The Anthropic account has no credit. Add credit at console.anthropic.com → Billing.';
+  if (/anthropic-workspace-id|scoped to a workspace/i.test(apiMessage(e))) return 'This AI key isn’t tied to a workspace. Set ANTHROPIC_WORKSPACE_ID in Vercel, or use a key created inside a workspace.';
   if (e instanceof Anthropic.AuthenticationError) return 'AI key is missing or invalid.';
   if (e instanceof Anthropic.PermissionDeniedError) return `The AI key can’t use this model (${MODEL}).`;
   if (e instanceof Anthropic.NotFoundError) return `AI model not found (${MODEL}).`;

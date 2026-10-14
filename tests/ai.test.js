@@ -69,6 +69,7 @@ before(async () => {
       DATABASE_URL: process.env.TEST_DATABASE_URL || '',
       SESSION_SECRET: 'test-secret-test-secret-test-secret-123',
       ANTHROPIC_API_KEY: 'test-key',
+      ANTHROPIC_WORKSPACE_ID: 'wrkspc_test',
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${FAKE}`,
       AI_DAILY_NOTES: '2',
       AI_DAILY_FOOD_ESTIMATES: '2',
@@ -115,6 +116,7 @@ test('the daily note is written once, then served from the cache', async () => {
   assert.equal(first.body.note.focus, 'Pack your kit tonight.');
   const sent = calls.at(-1);
   assert.equal(sent.body.model, 'claude-opus-5-5');
+  assert.equal(sent.headers['anthropic-workspace-id'], 'wrkspc_test', 'the workspace header is sent when configured');
   assert.equal(sent.body.output_config.format.type, 'json_schema');
   assert.ok(JSON.stringify(sent.body.messages).includes('October 100'), 'the AI receives the challenge summary');
   const n = calls.length;

@@ -49,6 +49,7 @@ Under **Settings → Environment Variables**:
 | `DATABASE_URL` | yes | Added by Neon in step 3. |
 | `INVITE_CODE` | recommended | If set, people need this code to create an account. Without it, anyone who finds the address can sign up. |
 | `ANTHROPIC_API_KEY` | optional | The daily AI coach's note and AI food estimates (see below). Whoever owns the key pays for everyone's usage. |
+| `ANTHROPIC_WORKSPACE_ID` | only for some keys | Needed if the AI says the key "is not scoped to a workspace". Use the workspace ID (starts `wrkspc_`) from console.anthropic.com → Settings → Workspaces. |
 
 ### 5. Deploy and check
 
