@@ -32,10 +32,11 @@ export function WeeklyBars({ weeks, weeklyTarget, current }) {
   );
 }
 
+const OFF_LABEL = { unavailable: 'unavailable', rest: 'rest day', busy: 'busy' };
 const TYPE_COLOUR = { run: 'var(--run)', walk: 'var(--walk)', cycle: 'var(--cycle)', swim: 'var(--swim)', box: 'var(--box)' };
 
 /** Daily distance for the whole challenge, scrolling horizontally. Completed bars are solid, stacked by activity; planned are dashed. */
-export function DailyChart({ days, types, guide, guideLabel }) {
+export function DailyChart({ days, types, guide, guideLabel, onPick }) {
   const ref = useRef(null);
   const sum = (d) => types.reduce((t, k) => t + (d.parts[k] || 0), 0);
   const max = Math.max(guide || 0, ...days.map((d) => Math.max(sum(d), d.planned || 0)), 1) * 1.12;
@@ -55,7 +56,13 @@ export function DailyChart({ days, types, guide, guideLabel }) {
         {days.map((d) => {
           const total = sum(d);
           return (
-            <div key={d.date} className={`dc-col ${d.isToday ? 'today' : ''} ${d.isPast ? 'past' : ''}`} title={`${formatDate(d.date)}: ${total ? `${dist(total)} ${unitShort()} done` : ''}${d.planned ? ` ${dist(d.planned)} ${unitShort()} planned` : ''}`}>
+            <button
+              type="button"
+              key={d.date}
+              className={`dc-col ${d.isToday ? 'today' : ''} ${d.isPast ? 'past' : ''} ${d.off && d.off !== 'normal' ? 'off' : ''}`}
+              onClick={() => onPick?.(d.date)}
+              title={`${formatDate(d.date)}: ${total ? `${dist(total)} ${unitShort()} done` : ''}${d.planned ? ` ${dist(d.planned)} ${unitShort()} planned` : ''}${OFF_LABEL[d.off] ? ` (${OFF_LABEL[d.off]})` : ''}`}
+            >
               <div className="dc-val num">{total ? dist(total) : d.planned ? dist(d.planned) : ''}</div>
               <div className="dc-bars">
                 {total > 0 ? (
@@ -67,8 +74,9 @@ export function DailyChart({ days, types, guide, guideLabel }) {
               <div className="dc-day">
                 <strong>{Number(d.date.slice(8))}</strong>
                 <span>{'SMTWTFS'[parseDate(d.date).getDay()]}</span>
+                {d.period && <i className="pdot" title="Period" />}
               </div>
-            </div>
+            </button>
           );
         })}
       </div>

@@ -166,7 +166,7 @@ export function Onboarding() {
         {
           [
             'Set the distance you’re aiming for and what counts towards it. You can change any of this later.',
-            'Make a list of the kinds of day you have, then pick one for each day of the week. Exact times can be fine-tuned later in the calendar.',
+            'Make a list of the kinds of day you have, then pick one for each day of the week. Exact times can be fine-tuned later in the weekly pattern.',
             'These keep suggestions comfortable. The planner never jumps far beyond what you’ve recently done.',
           ][step]
         }

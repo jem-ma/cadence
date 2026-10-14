@@ -303,24 +303,7 @@ details.more summary::-webkit-details-marker { display: none; }
 .chart .grid-line { stroke: var(--line); stroke-width: 1; }
 .chart-tip { font-size: var(--fs-2); color: var(--ink-2); min-height: 18px; }
 
-/* ---------- calendar ---------- */
-.cal-month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.cal-month .dow { font-size: var(--fs-1); color: var(--ink-3); text-align: center; padding: 4px 0; font-weight: 600; }
-.cal-cell {
-  min-height: 72px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); padding: 5px; cursor: pointer;
-  display: flex; flex-direction: column; gap: 3px; text-align: left; min-width: 0; font-size: var(--fs-1);
-}
-.cal-cell:hover { border-color: var(--ink-3); }
-.cal-cell.out { opacity: 0.4; }
-.cal-cell.today { outline: 2px solid var(--accent); outline-offset: -1px; }
-.cal-cell.past { background: var(--surface-2); }
-.cal-cell.unavailable { background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 5px, var(--surface) 5px, var(--surface) 10px); }
-.cal-cell .d { font-weight: 600; font-size: var(--fs-2); display: flex; justify-content: space-between; align-items: center; }
-.cal-cell .tag { font-size: var(--fs-1); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-cell .bar { height: 4px; border-radius: 3px; }
-.cal-cell .mi { font-size: var(--fs-1); font-variant-numeric: tabular-nums; }
 .pdot { width: 6px; height: 6px; border-radius: 50%; background: var(--period); display: inline-block; }
-@media (min-width: 700px) { .cal-cell { min-height: 92px; padding: 7px; font-size: var(--fs-2); } .cal-cell .tag { font-size: var(--fs-1); } }
 
 .timeline { position: relative; display: flex; flex-direction: column; gap: 6px; }
 .tl-block { display: flex; gap: 10px; align-items: stretch; }
@@ -416,7 +399,12 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 /* ---------- daily chart ---------- */
 .dc-scroll { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
 .dc-track { position: relative; display: flex; gap: 4px; min-width: max-content; padding-top: 4px; }
-.dc-col { flex: 0 0 34px; display: flex; flex-direction: column; align-items: center; border-radius: 8px; }
+.dc-col { flex: 0 0 34px; display: flex; flex-direction: column; align-items: center; border-radius: 8px; border: 1px solid transparent; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.dc-col:hover { border-color: var(--line); background: var(--surface-2); }
+.dc-col:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dc-col { position: relative; }
+.dc-day .pdot { position: absolute; bottom: 1px; width: 5px; height: 5px; }
+.dc-col.off .dc-day { text-decoration: line-through; opacity: 0.6; }
 .dc-col.today { background: var(--surface-2); }
 .dc-val { height: 16px; font-size: var(--fs-1); color: var(--ink-3); }
 .dc-bars { height: 140px; width: 18px; display: flex; flex-direction: column; justify-content: flex-end; }
@@ -432,8 +420,6 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 
 /* ---------- layout v5 ---------- */
 @media (min-width: 900px) { .today-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
-.cal-history { align-items: start; }
-@media (min-width: 900px) { .cal-history { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
 .history .seg button { padding: 4px 9px; font-size: var(--fs-2); }
 .history-list { list-style: none; margin: 0; padding: 0; }
 .history-list button { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line); padding: 7px 0; cursor: pointer; color: inherit; }
@@ -577,3 +563,5 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
   .today-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .hero-row { gap: 8px; }
 }
+
+.status-line { margin: -6px 0 0; font-size: var(--fs-3); color: var(--ink-2); }

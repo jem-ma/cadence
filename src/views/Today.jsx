@@ -7,11 +7,10 @@ import { resizeImage } from '../components/forms.jsx';
 import { challengeActivities, challengeStatus, countsToward, dailyTotals, round1, sumMiles, weeklyTotals } from '../shared/calc.js';
 import { addDays, dateRange, diffDays, formatDate, formatDuration, relativeDay, startOfWeek } from '../shared/dates.js';
 import { contextFingerprint, motivationLine } from '../shared/coach.js';
-import { personalOf } from '../shared/schedule.js';
+import { personalOf, resolveDay } from '../shared/schedule.js';
 import { challengeReview } from '../shared/reviews.js';
 import { RecoveryAndFuelling } from './Nutrition.jsx';
 import { dayNutritionTotals } from '../shared/nutrition.js';
-import { CalendarSection } from './Calendar.jsx';
 import { ActivityHistory } from './Challenge.jsx';
 import { dist, distFixed, fmtDist, unitShort } from '../shared/units.js';
 import { isDistanceType, typeLabel, typeNoun } from '../shared/activities.js';
@@ -60,15 +59,13 @@ export default function Dashboard() {
 
       <div className="stack" style={{ gap: 18 }}>
         <ProgressCard />
+        <StatusLine />
         <LogButtons />
         <TodayCard />
         <RecoveryAndFuelling />
         <ComingUp />
         <DailyMileage />
-        <div className="grid cal-history">
-          <CalendarSection />
-          <ActivityHistory />
-        </div>
+        <ActivityHistory />
         <WhatWorked />
       </div>
     </>
@@ -137,6 +134,21 @@ function ProgressCard() {
       </div>
     </section>
   );
+}
+
+/* One sentence on how far you've come and what's left */
+function StatusLine() {
+  const { coaching, challenge, today } = useStore();
+  const { status } = coaching;
+  const pct = Math.floor(status.pct);
+  const left = status.remainingMi;
+  const days = status.daysRemaining;
+  let text;
+  if (left <= 0) text = `You’ve reached your ${dist(status.target)} ${unitShort()} target: ${fmtDist(status.totalMi)} done. Anything more is a bonus.`;
+  else if (today < challenge.startDate) text = `${fmtDist(status.target)} to go, starting ${formatDate(challenge.startDate, { year: false })}.`;
+  else if (today > challenge.endDate) text = `You finished at ${pct}% of your target: ${fmtDist(status.totalMi)} of ${fmtDist(status.target)}.`;
+  else text = `You’re ${pct}% of the way there, with ${fmtDist(left)} to go in ${days} ${days === 1 ? 'day' : 'days'}.`;
+  return <p className="status-line">{text}</p>;
 }
 
 function Cell({ label, value, unit, dot, title }) {
@@ -495,7 +507,8 @@ function LogButtons() {
 
 /* ---------- Daily mileage across the challenge ---------- */
 function DailyMileage() {
-  const { coaching, challenge, data, today } = useStore();
+  const { coaching, challenge, data, today, cal } = useStore();
+  const { open } = useSheets();
   const { status, plan } = coaching;
   const counted = challenge.activityTypes || ['run', 'walk'];
   const distTypes = LOG_ORDER.filter((t) => counted.includes(t) && isDistanceType(t));
@@ -507,11 +520,14 @@ function DailyMileage() {
     planned: d >= today ? plan.plannedByDate[d] || 0 : 0,
     isToday: d === today,
     isPast: d < today,
+    off: resolveDay(d, cal).status,
+    period: resolveDay(d, cal).period.active,
   }));
   return (
     <section className="card">
       <div className="card-head wrap-head">
         <h3>Daily distance</h3>
+        <div className="row wrap" style={{ gap: 12 }}>
         <div className="legend">
           {distTypes.map((t) => (
             <span key={t}>
@@ -524,13 +540,20 @@ function DailyMileage() {
             Planned
           </span>
         </div>
+        <button className="btn small" onClick={() => open('pattern')}>
+          Weekly pattern
+        </button>
+        </div>
       </div>
-      <DailyChart days={days} types={distTypes} guide={status.requiredPerDay} guideLabel={`${dist(status.requiredPerDay)} ${unitShort()}/day needed`} />
+      <DailyChart onPick={(d) => open('day', { date: d })} days={days} types={distTypes} guide={status.requiredPerDay} guideLabel={`${dist(status.requiredPerDay)} ${unitShort()}/day needed`} />
       {baseline > 0 && (
         <p className="tiny faint" style={{ margin: '6px 0 0' }}>
           Not shown by day: {fmtDist(baseline)} opening balance from before you started using Cadence.
         </p>
       )}
+      <p className="tiny faint" style={{ margin: '6px 0 0' }}>
+        Tap a day to change its availability, commitments or plan, or to log what you did.
+      </p>
     </section>
   );
 }

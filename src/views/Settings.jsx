@@ -173,7 +173,7 @@ function MyWeek() {
       <p className="small muted" style={{ margin: 0 }}>
         Used by the planner on {usesOffice ? 'office days' : ''}
         {usesOffice && usesNans ? ' and ' : ''}
-        {usesNans ? 'run-straight-after days' : ''}. Times for each day are in the calendar’s weekly pattern.
+        {usesNans ? 'run-straight-after days' : ''}. Times for each day are in the weekly pattern (on the daily distance chart).
       </p>
       <div className="form-grid">
         {usesNans && (

@@ -19,7 +19,7 @@ const toRow = (s) => ({
 /**
  * Adjust one upcoming day's plan: change, add or remove sessions, mark the day unavailable,
  * or log a distance (pre-filled from the plan, editable before saving).
- * Calendar settings (time blocks, day type) are only edited from the calendar.
+ * Calendar settings (time blocks, day type) are only edited from the day editor (daily distance chart).
  */
 export function PlanDaySheet({ date, onClose }) {
   const { coaching, data, actions, notify, today, units } = useStore();
@@ -163,7 +163,7 @@ export function PlanDaySheet({ date, onClose }) {
             <span className="small muted num">Planned: {total} {units}</span>
           </div>
           <p className="tiny faint" style={{ margin: 0 }}>
-            “Log” records the distance as done, using the planned figure as a starting point you can change. To change this day’s time blocks or type, use the calendar.
+            “Log” records the distance as done, using the planned figure as a starting point you can change. To change this day’s time blocks or type, tap the day on the daily distance chart.
           </p>
         </div>
       )}
