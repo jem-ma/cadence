@@ -5,7 +5,7 @@ import { Icon, Banner, Empty } from '../components/ui.jsx';
 import { DailyChart } from '../components/charts.jsx';
 import { resizeImage } from '../components/forms.jsx';
 import { challengeActivities, challengeStatus, countsToward, dailyTotals, round1, sumMiles, weeklyTotals } from '../shared/calc.js';
-import { addDays, dateRange, diffDays, formatDate, formatDuration, relativeDay, startOfWeek } from '../shared/dates.js';
+import { addDays, dateRange, diffDays, formatDate, formatDuration, startOfWeek } from '../shared/dates.js';
 import { contextFingerprint, motivationLine } from '../shared/coach.js';
 import { personalOf, resolveDay } from '../shared/schedule.js';
 import { challengeReview } from '../shared/reviews.js';
@@ -63,7 +63,6 @@ export default function Dashboard() {
         <LogButtons />
         <TodayCard />
         <RecoveryAndFuelling />
-        <ComingUp />
         <DailyMileage />
         <ActivityHistory />
         <WhatWorked />
@@ -88,8 +87,6 @@ function ProgressCard() {
   const weekDone = sumMiles(inWeek);
   const atWeekStart = challengeStatus(challenge, data.activities.filter((a) => a.date < ws), ws);
   const weekNeeded = atWeekStart.requiredPerDay * (diffDays(ws, we) + 1);
-  const weekLeft = Math.max(0, weekNeeded - weekDone);
-  const perWeekNow = status.requiredPerDay * 7;
   const inChallenge = today >= challenge.startDate && today <= challenge.endDate;
   const boxMinutes = counted.includes('box')
     ? challengeActivities(data.activities, challenge)
@@ -126,29 +123,55 @@ function ProgressCard() {
         <Cell label="Remaining" value={distFixed(status.remainingMi)} unit={unitShort()} />
         <Cell label="Days left" value={status.daysRemaining} unit={`of ${status.totalDays}`} />
         {inChallenge && <Cell label="This week" value={`${dist(weekDone)}/${dist(weekNeeded)}`} unit={unitShort()} />}
-        {inChallenge && <Cell label="Left this week" value={distFixed(weekLeft)} unit={unitShort()} />}
-        <Cell label="Needed/week" title="Needed per week from now" value={distFixed(perWeekNow)} unit={unitShort()} />
-        <Cell label="Needed/day" title="Needed per day from now (average)" value={distFixed(status.requiredPerDay)} unit={unitShort()} />
-        <Cell label="Sessions" value={status.sessionCount} unit={counted.includes('run') && review.longest ? `longest ${dist(review.longest)}` : ''} />
         <Cell label="Active days" value={review.activeDays} unit="" />
       </div>
     </section>
   );
 }
 
-/* One sentence on how far you've come and what's left */
+/* How far you've come and what's left, plus a nudge near a milestone */
+const MILESTONES = [0.25, 0.5, 0.75, 0.9, 1];
+const MILESTONE_NAME = { 0.25: 'a quarter of the way', 0.5: 'halfway', 0.75: 'three quarters', 0.9: '90%', 1: 'the finish' };
+
+function statusMotivation(status, inChallenge) {
+  const done = status.totalMi;
+  const target = status.target;
+  if (!(target > 0)) return null;
+  const next = MILESTONES.find((m) => done < m * target);
+  const toNext = next ? next * target - done : 0;
+  // close = within a typical day's distance (min 1 mile) of the next milestone
+  const close = next && toNext <= Math.max(1, status.requiredPerDay || 0, target * 0.04);
+  const days = status.daysRemaining;
+  if (close && next === 1) return `Only ${fmtDist(toNext)} between you and the finish. One more good session could do it.`;
+  if (close) return `Just ${fmtDist(toNext)} until you pass ${MILESTONE_NAME[next]}. One good session gets you there.`;
+  if (!inChallenge) return null;
+  if (days === 1) return 'Last day. Make it count.';
+  if (days <= 3) return `Final ${days} days. Everything you add now goes straight to the finish line.`;
+  if (days <= 7) return 'Final week. Steady sessions will carry you home.';
+  const passed = [...MILESTONES].reverse().find((m) => m < 1 && done >= m * target);
+  if (passed && done - passed * target <= Math.max(1, status.requiredPerDay || 0)) return `You’ve just passed ${MILESTONE_NAME[passed]}. Keep the rhythm going.`;
+  return null;
+}
+
 function StatusLine() {
   const { coaching, challenge, today } = useStore();
   const { status } = coaching;
   const pct = Math.floor(status.pct);
   const left = status.remainingMi;
   const days = status.daysRemaining;
+  const inChallenge = today >= challenge.startDate && today <= challenge.endDate;
   let text;
-  if (left <= 0) text = `You’ve reached your ${dist(status.target)} ${unitShort()} target: ${fmtDist(status.totalMi)} done. Anything more is a bonus.`;
-  else if (today < challenge.startDate) text = `${fmtDist(status.target)} to go, starting ${formatDate(challenge.startDate, { year: false })}.`;
-  else if (today > challenge.endDate) text = `You finished at ${pct}% of your target: ${fmtDist(status.totalMi)} of ${fmtDist(status.target)}.`;
-  else text = `You’re ${pct}% of the way there, with ${fmtDist(left)} to go in ${days} ${days === 1 ? 'day' : 'days'}.`;
-  return <p className="status-line">{text}</p>;
+  if (left <= 0) text = `You’ve reached your ${dist(status.target)} ${unitShort()} target: ${fmtDist(status.totalMi)} done`;
+  else if (today < challenge.startDate) text = `${fmtDist(status.target)} to go, starting ${formatDate(challenge.startDate, { year: false })}`;
+  else if (today > challenge.endDate) text = `You finished at ${pct}% of your target: ${fmtDist(status.totalMi)} of ${fmtDist(status.target)}`;
+  else text = `You’re ${pct}% of the way there, with ${fmtDist(left)} to go in ${days} ${days === 1 ? 'day' : 'days'}`;
+  const nudge = left <= 0 ? 'Anything more is a bonus.' : statusMotivation(status, inChallenge);
+  return (
+    <div className="status-line">
+      <h2>{text}</h2>
+      {nudge && <p>{nudge}</p>}
+    </div>
+  );
 }
 
 function Cell({ label, value, unit, dot, title }) {
@@ -522,6 +545,8 @@ function DailyMileage() {
     isPast: d < today,
     off: resolveDay(d, cal).status,
     period: resolveDay(d, cal).period.active,
+    label: resolveDay(d, cal).short,
+    fullLabel: resolveDay(d, cal).label,
   }));
   return (
     <section className="card">
@@ -584,87 +609,6 @@ function WhatWorked() {
             <div className="tiny faint">{b.s}</div>
           </div>
         ))}
-      </div>
-    </section>
-  );
-}
-
-/* ---------- Block 3: coming up ---------- */
-function ComingUp() {
-  const { coaching, today } = useStore();
-  const { open } = useSheets();
-  const track = useRef(null);
-  const days = coaching.plan.days.filter((d) => d.date > today).slice(0, 7);
-  const scroll = (dir) => track.current?.scrollBy({ left: dir * track.current.clientWidth * 0.8, behavior: 'smooth' });
-  if (!days.length) return null;
-  return (
-    <section aria-label="Coming up">
-      <div className="row between" style={{ marginBottom: 10 }}>
-        <h3>Coming up</h3>
-        <div className="row" style={{ gap: 4 }}>
-          <button className="icon-btn" onClick={() => scroll(-1)} aria-label="Scroll back">
-            <Icon name="chevronL" />
-          </button>
-          <button className="icon-btn" onClick={() => scroll(1)} aria-label="Scroll forward">
-            <Icon name="chevronR" />
-          </button>
-        </div>
-      </div>
-      <div className="carousel" ref={track}>
-        {days.map((d) => {
-          const total = d.sessions.reduce((s, x) => s + x.distanceMi, 0);
-          const statusLabel = { normal: d.day.label, unavailable: 'No exercise', rest: 'Rest day', busy: 'Busy' }[d.day.status];
-          return (
-            <article
-              key={d.date}
-              className={`card day-card clickable ${d.day.status === 'unavailable' ? 'off' : ''}`}
-              role="button"
-              tabIndex={0}
-              aria-label={`Plan ${formatDate(d.date)}`}
-              onClick={() => open('planDay', { date: d.date })}
-              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), open('planDay', { date: d.date }))}
-            >
-              <div>
-                <div style={{ fontWeight: 600 }}>{relativeDay(d.date, today)}</div>
-                <div className="tiny faint">
-                  {formatDate(d.date, { weekday: false, short: true })} · {statusLabel}
-                  {d.day.planLocked ? ' · your plan' : ''}
-                </div>
-              </div>
-              <div className="day-card-total num">{total ? fmtDist(total) : '—'}</div>
-              <div className="stack" style={{ gap: 8 }}>
-                {d.sessions.length === 0 && <span className="small faint">{d.day.status === 'normal' ? 'Rest' : d.notes[0]}</span>}
-                {d.sessions.map((s, i) => (
-                  <div key={i} className="small" style={{ opacity: s.optional ? 0.65 : 1 }}>
-                    <div className="row" style={{ gap: 6, alignItems: 'baseline' }}>
-                      <i className={`dot ${s.type}`} />
-                      <span className="grow">
-                        {s.label} · {fmtDist(s.distanceMi)}
-                        {s.time && <span className="faint"> · {s.time}</span>}
-                      </span>
-                    </div>
-                    {s.fixed && (
-                      <span className="tiny" style={{ color: 'var(--run)', marginLeft: 15 }}>
-                        Confirmed
-                      </span>
-                    )}
-                  </div>
-                ))}
-                {d.day.events.map((e) => (
-                  <div key={e.id} className="tiny" style={{ color: 'var(--warn)' }}>
-                    {e.start ? `${e.start} ` : ''}
-                    {e.title}
-                  </div>
-                ))}
-                {d.day.period.active && (
-                  <span className="chip period" style={{ alignSelf: 'flex-start' }}>
-                    {d.day.period.actual ? 'Period' : 'Period expected'}
-                  </span>
-                )}
-              </div>
-            </article>
-          );
-        })}
       </div>
     </section>
   );

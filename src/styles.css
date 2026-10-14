@@ -351,13 +351,6 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 /* ---------- dashboard ---------- */
 .span-all { grid-column: 1 / -1; }
 @media (min-width: 560px) { .stats.stats-3 { grid-template-columns: repeat(3, 1fr); } }
-.carousel {
-  display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0;
-  padding: 2px 2px 10px; margin: 0 -2px; scrollbar-width: thin;
-}
-.carousel > .day-card { flex: 0 0 min(250px, 80%); scroll-snap-align: start; display: flex; flex-direction: column; gap: 10px; padding: 16px; }
-.day-card.off { background: var(--surface-2); box-shadow: none; }
-.day-card-total { font-family: var(--display); font-size: var(--fs-4); line-height: 1; }
 .link-btn { border: none; background: none; padding: 0; color: var(--accent); cursor: pointer; font-weight: 500; }
 .link-btn:hover { text-decoration: underline; }
 .step-list { display: flex; flex-direction: column; gap: 10px; }
@@ -399,11 +392,12 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 /* ---------- daily chart ---------- */
 .dc-scroll { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
 .dc-track { position: relative; display: flex; gap: 4px; min-width: max-content; padding-top: 4px; }
-.dc-col { flex: 0 0 34px; display: flex; flex-direction: column; align-items: center; border-radius: 8px; border: 1px solid transparent; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.dc-col { flex: 0 0 46px; display: flex; flex-direction: column; align-items: center; border-radius: 8px; border: 1px solid transparent; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .dc-col:hover { border-color: var(--line); background: var(--surface-2); }
 .dc-col:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dc-col { position: relative; }
-.dc-day .pdot { position: absolute; bottom: 1px; width: 5px; height: 5px; }
+.dc-day .pdot { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; }
+.dc-day em { font-style: normal; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
 .dc-col.off .dc-day { text-decoration: line-through; opacity: 0.6; }
 .dc-col.today { background: var(--surface-2); }
 .dc-val { height: 16px; font-size: var(--fs-1); color: var(--ink-3); }
@@ -412,7 +406,7 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .dc-bars span:first-child { border-radius: 4px 4px 0 0; }
 .dc-bars span:only-child { border-radius: 4px 4px 0 0; }
 .dc-bars .planned { border: 1.5px dashed var(--run); border-bottom: none; background: transparent; opacity: 0.7; }
-.dc-day { height: 34px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: var(--fs-1); line-height: 1.2; color: var(--ink-3); }
+.dc-day { height: 48px; width: 100%; padding: 0 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: var(--fs-1); line-height: 1.2; color: var(--ink-3); }
 .dc-day strong { color: var(--ink-2); font-weight: 600; }
 .dc-col.today .dc-day strong { color: var(--accent); }
 .dc-guide { position: absolute; left: 0; right: 0; border-top: 1.5px dashed var(--target); pointer-events: none; }
@@ -432,18 +426,6 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 @media (min-width: 1000px) { .kpi-row.worked { grid-template-columns: repeat(6, 1fr); } }
 .kpi-row.worked .v { font-size: var(--fs-4); line-height: 1.25; margin: 2px 0; }
 
-/* ---------- plan-a-day ---------- */
-.day-card.clickable { cursor: pointer; transition: border-color 0.15s, transform 0.1s; }
-.day-card.clickable:hover { border-color: var(--ink-3); }
-.day-card.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.plan-row { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.plan-title { border: none; padding: 4px 0; min-height: 0; font-weight: 600; background: transparent; }
-.plan-title:focus { box-shadow: none; border-bottom: 1px solid var(--accent); border-radius: 0; }
-.plan-fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.plan-fields .seg button { padding: 5px 10px; font-size: var(--fs-3); }
-.plan-field { display: flex; align-items: center; gap: 4px; }
-.plan-field .input { width: 72px; }
-.plan-time { width: 110px; }
 
 /* ---------- today block v2 ---------- */
 .today-card { display: flex; flex-direction: column; gap: 16px; }
@@ -564,4 +546,6 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
   .hero-row { gap: 8px; }
 }
 
-.status-line { margin: -6px 0 0; font-size: var(--fs-3); color: var(--ink-2); }
+.status-line { text-align: center; padding: 4px 8px 0; }
+.status-line h2 { margin: 0; font-size: var(--fs-4); line-height: 1.3; }
+.status-line p { margin: 4px 0 0; font-size: var(--fs-3); font-style: italic; color: var(--ink-2); }

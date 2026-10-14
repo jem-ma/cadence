@@ -49,7 +49,7 @@ export function DailyChart({ days, types, guide, guideLabel, onPick }) {
     <div className="dc-scroll" ref={ref}>
       <div className="dc-track">
         {guide > 0 && (
-          <div className="dc-guide" style={{ bottom: `${34 + (guide / max) * 140}px` }} title={guideLabel}>
+          <div className="dc-guide" style={{ bottom: `${48 + (guide / max) * 140}px` }} title={guideLabel}>
             <span>{guideLabel}</span>
           </div>
         )}
@@ -74,6 +74,7 @@ export function DailyChart({ days, types, guide, guideLabel, onPick }) {
               <div className="dc-day">
                 <strong>{Number(d.date.slice(8))}</strong>
                 <span>{'SMTWTFS'[parseDate(d.date).getDay()]}</span>
+                {d.label && <em title={d.fullLabel}>{d.label}</em>}
                 {d.period && <i className="pdot" title="Period" />}
               </div>
             </button>

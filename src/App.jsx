@@ -5,7 +5,6 @@ import { ActivityForm, EnergyForm, FoodForm, DayEditor, ChallengeForm } from './
 import Dashboard from './views/Today.jsx';
 import { SettingsSheet } from './views/Settings.jsx';
 import { PatternEditor } from './views/Calendar.jsx';
-import { PlanDaySheet } from './components/PlanDaySheet.jsx';
 import { AuthScreen } from './components/Auth.jsx';
 import { Onboarding } from './components/Onboarding.jsx';
 
@@ -53,7 +52,6 @@ export default function App() {
       {sheet?.type === 'day' && <DayEditor {...sheet.props} onClose={close} />}
       {sheet?.type === 'challenge' && <ChallengeForm {...sheet.props} onClose={close} />}
       {sheet?.type === 'settings' && <SettingsSheet onClose={close} />}
-      {sheet?.type === 'planDay' && <PlanDaySheet {...sheet.props} onClose={close} />}
       {sheet?.type === 'pattern' && (
         <Sheet title="Weekly pattern" onClose={close} wide>
           <PatternEditor onClose={close} />
