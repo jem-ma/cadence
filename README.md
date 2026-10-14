@@ -128,7 +128,7 @@ The first-run setup asks for:
 - **Office-day details**, only if an office day is used: commute walking and an optional longer walk.
 - **Comfortable run distances**, only if running counts.
 
-Everything can be changed later in Settings and the calendar's weekly pattern.
+Everything can be changed later in Settings and the weekly pattern (on the daily distance chart). Tap any day on that chart to edit it.
 
 **Activity types:** walking, running, cycling and swimming add distance to the target. Boxing is tracked by time (it counts as a session and an active day, not as distance). The planner schedules runs and walks; other activities count when they're logged.
 
