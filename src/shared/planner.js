@@ -252,7 +252,8 @@ export function planChallenge(input) {
 
   // ---- Phase B: close the gap with the smallest realistic additions ----
   const remaining = status.remainingMi;
-  const totalPlanned = () => round2(days.reduce((s, d) => s + d.sessions.reduce((t, x) => t + x.distanceMi, 0), 0));
+  const counts = (x) => !x.optional;
+  const totalPlanned = () => round2(days.reduce((s, d) => s + d.sessions.filter(counts).reduce((t, x) => t + x.distanceMi, 0), 0));
   const weekPlanned = (ws) => days.filter((d) => weekOf(d.date) === ws).reduce((s, d) => s + d.sessions.reduce((t, x) => t + x.distanceMi, 0), 0);
   const extendedInWeek = (ws) => days.filter((d) => weekOf(d.date) === ws).reduce((n, d) => n + d.sessions.filter((s) => s.kind === 'extendedWalk').length, 0);
   const target = remaining * 1.03; // small safety margin
@@ -267,10 +268,10 @@ export function planChallenge(input) {
         if (c.kind === 'extendedWalk') {
           if (extendedInWeek(ws) >= T.maxExtendedWalksPerWeek) continue;
           if (d.isToday && todayAdjust.lowEnergy) continue;
-          options.push({ d, c, score: 1.8 + load / 60, why: 'Strategic walking on a day you are already commuting adds mileage without extra running load.' });
+          options.push({ d, c, score: 1.8 + load / 60 + (d.day.period.active ? 1 : 0), why: 'Strategic walking on a day you are already commuting adds mileage without extra running load.' });
         } else if (c.type === 'run' && ['run', 'lunch', 'nans', 'longCandidate'].includes(c.kind)) {
           if (!canRun(d.date, false)) continue;
-          options.push({ d, c, score: (c.preferredWindow ? 1.5 : 2.2) + load / 60, why: 'An extra easy run in a window that is genuinely free.' });
+          options.push({ d, c, score: (c.preferredWindow ? 1.5 : 2.2) + load / 60 + (d.day.period.active ? 1 : 0), why: 'An extra easy run in a window that is genuinely free.' });
         } else if (c.kind === 'recoveryWalk') {
           options.push({ d, c, score: 2.6 + load / 50, why: 'A relaxed walk adds distance while you recover.' });
         }
@@ -279,7 +280,7 @@ export function planChallenge(input) {
       for (const s of d.sessions) {
         if (s.type !== 'run' || s.fixed) continue;
         const cap = s.kind === 'long' ? longCap : s.maxMi || T.easyRunMaxMi;
-        if (s.distanceMi + 0.5 <= cap + 0.01) options.push({ d, s, score: 3 + load / 40, why: 'A small extension keeps the increase gradual.' });
+        if (s.distanceMi + 0.5 <= cap + 0.01) options.push({ d, s, score: 3 + load / 40 + (d.day.period.active ? 1.5 : 0), why: 'A small extension keeps the increase gradual.' });
       }
     }
     if (!options.length) break;
@@ -296,6 +297,12 @@ export function planChallenge(input) {
     }
   }
 
+  // ---- Phase C: fit the plan to what's actually left ----
+  // Every time distance is logged, what's left changes, so the flexible sessions shrink in proportion
+  // (keeping day-type and period differences) or, when they'd get too short, drop out — latest first.
+  // Sessions you planned yourself and commute walking keep their distance.
+  fitToRemaining(days, remaining * 1.03, T, L);
+
   // ---- finalise: durations, cumulative, optional flags ----
   let cum = 0;
   let projectedCompletionDate = null;
@@ -304,14 +311,16 @@ export function planChallenge(input) {
     for (const s of d.sessions) {
       s.durationMin = s.durationMin || Math.round(s.distanceMi * (s.type === 'run' ? runPace : walkPace));
       if (!s.label) s.label = L[s.kind] || L[s.type];
+      if (s.optional) continue;
       if (cum >= remaining * 1.05 && !s.fixed && !s.expected && remaining > 0) {
         s.optional = true;
         s.reason = 'Optional — your target is already covered by earlier sessions.';
+        continue;
       }
       cum += s.distanceMi;
       if (!projectedCompletionDate && cum >= remaining && remaining > 0) projectedCompletionDate = d.date;
     }
-    d.plannedMi = round2(d.sessions.reduce((t, x) => t + x.distanceMi, 0));
+    d.plannedMi = round2(d.sessions.filter(counts).reduce((t, x) => t + x.distanceMi, 0));
   }
   const plannedMi = totalPlanned();
   const shortfall = round1(Math.max(0, remaining - plannedMi));
@@ -354,9 +363,51 @@ function countUserRuns(days, ws) {
   return days.filter((d) => startOfWeek(d.date) === ws && d.sessions.some((s) => s.type === 'run' && s.fixed)).length;
 }
 
+/** Period days get lighter sessions: 20% less, or 30% less when your own logs show a clear energy dip. */
 function periodAdjust(d, mi, drop) {
-  if (!d.day.period.active || drop == null || drop < 1.5) return round1(mi);
-  return round1(Math.max(2, mi * 0.8));
+  if (!d.day.period.active) return round1(mi);
+  const f = drop != null && drop >= 1.5 ? 0.7 : 0.8;
+  return round1(Math.max(Math.min(mi, 2), mi * f));
+}
+
+const MIN_SESSION_MI = { run: 1.5, walk: 1 };
+
+function fitToRemaining(days, goal, T, L) {
+  const fixed = (s) => s.fixed || s.expected;
+  for (let guard = 0; guard < 200; guard++) {
+    const flex = days.flatMap((d) => d.sessions.filter((s) => !s.optional && !fixed(s)).map((s) => ({ d, s })));
+    const locked = days.reduce((t, d) => t + d.sessions.filter((s) => !s.optional && fixed(s)).reduce((a, s) => a + s.distanceMi, 0), 0);
+    const flexSum = flex.reduce((t, x) => t + x.s.distanceMi, 0);
+    const room = Math.max(0, goal - locked);
+    if (!flex.length || flexSum <= room + 0.5) return; // within half a mile: leave the plan alone
+    const f = room / flexSum;
+    const tooShort = flex.filter((x) => x.s.distanceMi * f < (MIN_SESSION_MI[x.s.type] || 1));
+    if (tooShort.length) {
+      // drop the latest one and re-fit the rest
+      const last = tooShort.reduce((a, b) => (b.d.date >= a.d.date ? b : a));
+      last.s.optional = true;
+      last.s.reason = 'Optional — what you’ve logged so far means this isn’t needed.';
+      continue;
+    }
+    for (const { s } of flex) {
+      s.distanceMi = Math.max(MIN_SESSION_MI[s.type] || 1, Math.round(s.distanceMi * f * 2) / 2); // to the nearest half mile
+      s.trimmed = true;
+      if (s.kind === 'long' && s.distanceMi < T.longRunMinMi) {
+        s.kind = 'run';
+        s.label = L.run;
+      }
+    }
+    // rounding to half miles can overshoot: take half a mile off the latest sessions until it fits
+    let over = flex.reduce((t, x) => t + x.s.distanceMi, 0) - room;
+    for (const { s } of [...flex].reverse()) {
+      if (over <= 0.5) break;
+      if (s.distanceMi - 0.5 >= (MIN_SESSION_MI[s.type] || 1)) {
+        s.distanceMi -= 0.5;
+        over -= 0.5;
+      }
+    }
+    return;
+  }
 }
 
 function suggestGapOptions(days, shortfall, T, P) {

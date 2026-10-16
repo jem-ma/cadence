@@ -145,8 +145,9 @@ Everything can be changed later in Settings and the weekly pattern (on the daily
    - **Weekends with a long free window:** a long run.
 3. **Recovery rules.** No run the day after a long run, at most 2 run days in a row, at most 4 a week, and no late runs after office days. All of these can be changed in Settings.
 4. **Closing the gap.** The smallest realistic additions come first. If the plan still falls short, it says so instead of piling on miles.
-5. **Ahead of target.** Later sessions become optional.
-6. **Today.** Energy, what's already been logged, windows that have passed, day plans the user has set, and unavailable days all re-plan the rest of the month.
+5. **Fitting what's left.** Each time distance is logged, the flexible sessions for the rest of the challenge are re-fitted to the distance still needed. They shrink in proportion, to the nearest half mile, or the latest drop out when they'd be too short. Sessions you planned yourself and commute walking keep their distance.
+6. **Period days.** Sessions on period days (logged or expected) are 20% lighter, or 30% lighter when your own energy logs show a clear dip, and extra mileage is added to other days first.
+7. **Today.** Energy, what's already been logged, windows that have passed, day plans the user has set, and unavailable days all re-plan the rest of the month.
 
 ## Project layout
 

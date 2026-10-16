@@ -404,8 +404,14 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .dc-bars { height: 140px; width: 18px; display: flex; flex-direction: column; justify-content: flex-end; }
 .dc-bars span { display: block; width: 100%; }
 .dc-bars span:first-child { border-radius: 4px 4px 0 0; }
-.dc-bars span:only-child { border-radius: 4px 4px 0 0; }
 .dc-bars .planned { border: 1.5px dashed var(--run); border-bottom: none; background: transparent; opacity: 0.7; }
+.dc-col.mon::before { content: ''; position: absolute; left: -3px; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+.dc-weeks { display: flex; gap: 4px; min-width: max-content; margin-top: 8px; }
+.dc-week { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; border-radius: 8px; background: var(--surface-2); min-width: 0; text-align: center; }
+.dc-week.current { background: var(--surface-3); }
+.dc-week strong { font-family: var(--display); font-size: var(--fs-4); font-weight: 400; line-height: 1.1; }
+.dc-week strong small { font-family: var(--font); font-size: var(--fs-1); color: var(--ink-3); }
+.dc-week span { font-size: var(--fs-1); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .dc-day { height: 48px; width: 100%; padding: 0 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: var(--fs-1); line-height: 1.2; color: var(--ink-3); }
 .dc-day strong { color: var(--ink-2); font-weight: 600; }
 .dc-col.today .dc-day strong { color: var(--accent); }
@@ -421,52 +427,13 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .history-list .h-main { display: block; font-size: var(--fs-3); font-weight: 500; }
 .history-list .h-sub { display: block; font-size: var(--fs-1); color: var(--ink-3); }
 .history-list .excluded .h-main { text-decoration: line-through; color: var(--ink-3); }
-.kpi-row.worked { grid-template-columns: repeat(2, 1fr); }
-@media (min-width: 700px) { .kpi-row.worked { grid-template-columns: repeat(3, 1fr); } }
-@media (min-width: 1000px) { .kpi-row.worked { grid-template-columns: repeat(6, 1fr); } }
-.kpi-row.worked .v { font-size: var(--fs-4); line-height: 1.25; margin: 2px 0; }
 
 
 /* ---------- today block v2 ---------- */
-.today-card { display: flex; flex-direction: column; gap: 16px; }
-.today-top h2 { margin: 2px 0 0; }
-.today-top .motivation { margin: 4px 0 0; padding: 0; border: none; font-size: var(--fs-3); font-style: italic; color: var(--ink-2); }
-.today-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.t-tile { background: var(--surface-2); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; border: 1px solid transparent; font: inherit; color: inherit; }
-.t-btn { cursor: pointer; }
-.t-btn:hover { border-color: var(--line); background: var(--surface-3); }
-.t-tile .mini-head { margin: 0; }
-.t-value { font-family: var(--display); font-size: var(--fs-4); line-height: 1; }
-.t-value small { font-family: var(--font); font-size: var(--fs-3); color: var(--ink-3); }
-.t-sub { font-size: var(--fs-2); color: var(--ink-3); line-height: 1.35; }
-.today-tiles .progress.thin { margin-top: 2px; }
-.energy-dots { display: flex; gap: 3px; }
-.energy-dots i { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-3); }
-.energy-dots i.on { background: var(--walk); }
-.macro-split { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-3); }
-.today-top .plan-summary { margin: 6px 0 0; }
-.today-top .metaline { margin-top: 6px; }
-.today-food { padding-top: 14px; border-top: 1px solid var(--line); }
-.prep .mini-head { display: flex; align-items: center; gap: 5px; }
-.prep ul { margin: 0; padding-left: 18px; }
 .food-items button { display: flex; flex-direction: column; gap: 1px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .food-items li:last-child button { border-bottom: none; }
 .fi-meta { font-size: var(--fs-1); color: var(--ink-3); }
 .fi-text { font-size: var(--fs-2); color: var(--ink-2); }
-@media (max-width: 520px) {
-  .today-tiles { gap: 6px; }
-  .t-tile { padding: 10px 8px; }
-  .t-value { font-size: var(--fs-4); }
-  .t-sub { font-size: var(--fs-1); }
-}
-.t-value { white-space: nowrap; }
-.mini-head .est { text-transform: none; letter-spacing: 0; font-weight: 400; }
-@media (max-width: 520px) {
-  .t-value { font-size: var(--fs-4); }
-  .t-value small { font-size: var(--fs-1); }
-  .mini-head .est { display: none; }
-  .t-tile .mini-head { font-size: var(--fs-1); }
-}
 
 /* ---------- accounts & setup ---------- */
 .auth-card { max-width: 400px; width: 100%; }
@@ -476,7 +443,7 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .wp-day { font-weight: 500; }
 
 /* ---------- AI coach's note ---------- */
-.coach-note { background: var(--surface-2); border-radius: 12px; padding: 12px 14px; border-left: 3px solid var(--accent); }
+.coach-note { border-left: 3px solid var(--accent); }
 .coach-note .mini-head { display: flex; align-items: center; gap: 5px; color: var(--accent); }
 .cn-text { margin: 0; font-size: var(--fs-3); line-height: 1.5; }
 .cn-focus { margin: 8px 0 0; font-size: var(--fs-3); }
@@ -524,9 +491,6 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .cell-v small { font-family: var(--font); font-size: var(--fs-1); color: var(--ink-3); }
 
 /* ---------- today block ---------- */
-.today-tiles { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr) minmax(0, 1.3fr); }
-.t-tile.t-small { padding: 8px 10px; gap: 2px; }
-.t-tile.t-small .t-sub { font-size: var(--fs-1); }
 .food-form { display: flex; flex-direction: column; gap: 8px; }
 .food-form textarea { min-height: 56px; }
 .meal-result { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); display: flex; flex-direction: column; gap: 6px; border-left: 3px solid var(--accent); }
@@ -542,7 +506,6 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .history-block { background: var(--surface-2); border: 1px solid transparent !important; border-radius: 10px; padding: 7px 10px !important; margin-bottom: 6px; }
 .history-block:hover { border-color: var(--ink-3) !important; }
 @media (max-width: 520px) {
-  .today-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .hero-row { gap: 8px; }
 }
 

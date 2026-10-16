@@ -312,3 +312,29 @@ test('meal coach context: intake today and yesterday, recent training and what i
   assert.equal(m.distanceUnit, 'miles');
   assert.ok(Array.isArray(m.training.stillPlannedToday) && Array.isArray(m.training.plannedTomorrow));
 });
+
+const planInput = (d, now, extra = {}) => ({ challenge: d.challenge, activities: d.activities, cal: d.cal, profile: d.profile, today: '2026-10-14', nowMin: 8 * 60, ...extra });
+
+test('future days shrink to what is left once distance is logged; your own sessions keep their distance', () => {
+  const d = fixture();
+  d.cal = { ...d.cal, plannedSessions: [{ id: 'p', date: '2026-10-24', type: 'run', distanceMi: 6, title: 'Parkrun and back', status: 'planned' }] };
+  const before = planChallenge(planInput(d));
+  const big = [...d.activities, { id: 'x', date: '2026-10-14', type: 'run', distanceMi: 20, startTime: '07:00' }];
+  const after = planChallenge(planInput({ ...d, activities: big }));
+  const future = (p) => p.days.filter((x) => x.date > '2026-10-14').reduce((t, x) => t + x.plannedMi, 0);
+  assert.ok(future(after) < future(before) - 10, `future plan drops (${future(before)} → ${future(after)})`);
+  assert.ok(future(after) >= after.status.remainingMi - 0.5, 'still covers what is left');
+  assert.ok(future(after) <= after.status.remainingMi * 1.03 + 0.6, 'without piling on extra');
+  const own = after.days.find((x) => x.date === '2026-10-24').sessions.find((s) => s.fixed);
+  assert.equal(own.distanceMi, 6);
+});
+
+test('period days get lighter sessions than the same day type without a period', () => {
+  const d = fixture();
+  const base = planChallenge(planInput(d));
+  const wed = '2026-10-21';
+  const withPeriod = planChallenge(planInput({ ...d, cal: { ...d.cal, cycle: [{ id: 'c', kind: 'expected', startDate: wed, endDate: wed }] } }));
+  const runOn = (p) => p.days.find((x) => x.date === wed).sessions.find((s) => s.type === 'run' && !s.optional);
+  assert.ok(runOn(base) && runOn(withPeriod), 'a run is planned either way');
+  assert.ok(runOn(withPeriod).distanceMi < runOn(base).distanceMi, `${runOn(withPeriod).distanceMi} < ${runOn(base).distanceMi}`);
+});

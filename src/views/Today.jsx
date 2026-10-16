@@ -4,13 +4,12 @@ import { useSheets } from '../App.jsx';
 import { Icon, Banner, Empty } from '../components/ui.jsx';
 import { DailyChart } from '../components/charts.jsx';
 import { resizeImage } from '../components/forms.jsx';
-import { challengeActivities, challengeStatus, countsToward, dailyTotals, round1, sumMiles, weeklyTotals } from '../shared/calc.js';
-import { addDays, dateRange, diffDays, formatDate, formatDuration, startOfWeek } from '../shared/dates.js';
-import { contextFingerprint, motivationLine } from '../shared/coach.js';
-import { personalOf, resolveDay } from '../shared/schedule.js';
+import { challengeActivities, challengeStatus, countsToward, dailyTotals, sumMiles } from '../shared/calc.js';
+import { addDays, dateRange, diffDays, formatDate, startOfWeek } from '../shared/dates.js';
+import { contextFingerprint } from '../shared/coach.js';
+import { resolveDay } from '../shared/schedule.js';
 import { challengeReview } from '../shared/reviews.js';
 import { RecoveryAndFuelling } from './Nutrition.jsx';
-import { dayNutritionTotals } from '../shared/nutrition.js';
 import { ActivityHistory } from './Challenge.jsx';
 import { dist, distFixed, fmtDist, unitShort } from '../shared/units.js';
 import { isDistanceType, typeLabel, typeNoun } from '../shared/activities.js';
@@ -61,11 +60,11 @@ export default function Dashboard() {
         <ProgressCard />
         <StatusLine />
         <LogButtons />
-        <TodayCard />
+        <FoodLogger />
         <RecoveryAndFuelling />
         <DailyMileage />
+        <CoachNote />
         <ActivityHistory />
-        <WhatWorked />
       </div>
     </>
   );
@@ -189,140 +188,6 @@ function Cell({ label, value, unit, dot, title }) {
   );
 }
 
-/* ---------- Block 2: today ---------- */
-function TodayCard() {
-  const { coaching, actions, today, challenge, data, profile } = useStore();
-  const { open } = useSheets();
-  const recId = `${today}-${challenge.id}`;
-  const recDoc = data.recommendations.find((r) => r.id === recId);
-  const rec = coaching.rec;
-  const inChallenge = today >= challenge.startDate && today <= challenge.endDate;
-
-  // Planned distance for today: remember what the plan was before anything was logged,
-  // so "planned vs completed" stays meaningful once you start logging.
-  const doneMi = coaching.status.todayMi;
-  const plannedNow = round1(doneMi + (coaching.todayPlan?.sessions || []).filter((s) => !s.optional).reduce((t, s) => t + s.distanceMi, 0));
-  const loggedToday = coaching.doneToday.length > 0;
-  const saving = useRef(false);
-  useEffect(() => {
-    if (!inChallenge || saving.current) return;
-    const stored = recDoc?.plannedMi;
-    if (stored != null && (loggedToday || stored === plannedNow)) return;
-    saving.current = true;
-    const doc = { id: recId, date: today, challengeId: challenge.id, status: recDoc?.status || 'open', plannedMi: plannedNow };
-    (recDoc ? actions.update('recommendations', recId, doc) : actions.create('recommendations', doc)).finally(() => (saving.current = false));
-  }, [inChallenge, recDoc, loggedToday, plannedNow, recId, today, challenge.id, actions]);
-  const plannedMi = recDoc?.plannedMi ?? plannedNow;
-
-  const e = coaching.energyLog;
-  const pct = plannedMi > 0 ? Math.min(100, (doneMi / plannedMi) * 100) : doneMi > 0 ? 100 : 0;
-  const foods = data.foods.filter((f) => f.date === today);
-  const nut = dayNutritionTotals(foods);
-  const showNumbers = profile.nutrition?.showNumbers !== false;
-  const macroKcal = nut.carbs * 4 + nut.protein * 4 + nut.fat * 9 || 1;
-
-  return (
-    <section className="card coach today-card" aria-label="Today">
-      <header className="today-top">
-        <div className="section-title" style={{ margin: 0 }}>
-          Today
-        </div>
-        <h2>{formatDate(today, { year: false })}</h2>
-        <p className="plan-summary">{rec.action.summary}</p>
-        {rec.activity && (
-          <div className="metaline">
-            <span className={`chip ${rec.activity.type}`}>
-              <Icon name={rec.activity.type} width="14" height="14" /> {fmtDist(rec.activity.distanceMi)}
-            </span>
-            {rec.activity.durationMin ? <span>≈ {formatDuration(rec.activity.durationMin)}</span> : null}
-            {rec.suggestedTime && <span>{rec.suggestedTime}</span>}
-          </div>
-        )}
-        <p className="motivation">{motivationLine(coaching)}</p>
-      </header>
-
-      <div className="today-tiles">
-        <div className="t-tile">
-          <div className="mini-head">Distance</div>
-          <div className="t-value num">
-            {distFixed(doneMi)}
-            <small>
-              {' '}
-              / {distFixed(plannedMi)} {unitShort()}
-            </small>
-          </div>
-          <div className="progress thin">
-            <span className="run" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="t-sub">completed / planned</div>
-        </div>
-
-        <button className="t-tile t-btn t-small" onClick={() => open('energy', { initial: e || undefined })} aria-label={e ? 'Edit energy' : 'Log energy'}>
-          <div className="mini-head">Energy</div>
-          {e ? (
-            <>
-              <div className="t-value num">
-                {e.energy}
-                <small>/10</small>
-              </div>
-              <div className="t-sub">at {e.time}</div>
-            </>
-          ) : (
-            <>
-              <div className="t-value faint">–</div>
-              <div className="t-sub">Not logged</div>
-            </>
-          )}
-        </button>
-
-        <div className="t-tile">
-          <div className="mini-head">
-            Intake <span className="est">(estimated)</span>
-          </div>
-          {showNumbers && nut.estimatedEntries > 0 ? (
-            <>
-              <div className="t-value num">
-                ≈{Math.round(nut.kcal)}
-                <small> kcal</small>
-              </div>
-              <div className="macro-split" aria-hidden="true">
-                <span style={{ width: `${((nut.carbs * 4) / macroKcal) * 100}%`, background: 'var(--walk)' }} />
-                <span style={{ width: `${((nut.protein * 4) / macroKcal) * 100}%`, background: 'var(--run)' }} />
-                <span style={{ width: `${((nut.fat * 9) / macroKcal) * 100}%`, background: 'var(--info)' }} />
-              </div>
-              <div className="t-sub num">
-                {Math.round(nut.carbs)} g carbs · {Math.round(nut.protein)} g protein · {Math.round(nut.fat)} g fat
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="t-value faint">{foods.length || '–'}</div>
-              <div className="t-sub">{foods.length ? `${foods.length} ${foods.length === 1 ? 'entry' : 'entries'}, not estimated` : 'No food logged yet'}</div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <CoachNote recDoc={recDoc} />
-
-      {rec.preparation?.length > 0 && (
-        <div className="prep">
-          <div className="mini-head">
-            <Icon name="bag" width="13" height="13" /> Prepare
-          </div>
-          <ul className="small">
-            {rec.preparation.map((p, i) => (
-              <li key={i}>{p}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <FoodLogger />
-    </section>
-  );
-}
-
 /* ---------- "What did you eat today?" ---------- */
 function FoodLogger() {
   const { today, data, actions, notify, now, challenge, integrations, profile } = useStore();
@@ -358,8 +223,10 @@ function FoodLogger() {
   const lastId = foods[foods.length - 1]?.id;
 
   return (
-    <div className="today-food" id="food-logger">
-      <div className="mini-head">What did you eat today?</div>
+    <section className="card today-food" id="food-logger" aria-label="What did you eat today?">
+      <div className="card-head">
+        <h3>What did you eat today?</h3>
+      </div>
       <form onSubmit={submit} className="food-form">
         <textarea
           id="food-input"
@@ -444,13 +311,14 @@ function FoodLogger() {
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }
 
 /** The AI coach's daily note — only shown when the AI coach is configured on the server. */
-function CoachNote({ recDoc }) {
-  const { integrations, coaching, challenge, now, actions } = useStore();
+function CoachNote() {
+  const { integrations, coaching, challenge, now, actions, data, today } = useStore();
+  const recDoc = data.recommendations.find((r) => r.id === `${today}-${challenge.id}`);
   const [state, setState] = useState({ loading: false, error: '' });
   const asked = useRef(false);
   const enabled = integrations?.ai?.enabled;
@@ -479,7 +347,7 @@ function CoachNote({ recDoc }) {
 
   if (!enabled) return null;
   return (
-    <div className="coach-note" aria-live="polite">
+    <section className="card coach-note" aria-live="polite" aria-label="Coach’s note">
       <div className="mini-head">
         <Icon name="spark" width="13" height="13" /> Coach’s note
       </div>
@@ -503,7 +371,7 @@ function CoachNote({ recDoc }) {
           {state.loading ? 'Writing…' : note ? 'Refresh' : 'Try again'}
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -579,37 +447,6 @@ function DailyMileage() {
       <p className="tiny faint" style={{ margin: '6px 0 0' }}>
         Tap a day to change its availability, commitments or plan, or to log what you did.
       </p>
-    </section>
-  );
-}
-
-/* ---------- What's working ---------- */
-function WhatWorked() {
-  const { challenge, data, cal, today } = useStore();
-  const r = challengeReview({ challenge, activities: data.activities, energyLogs: data.energyLogs, foods: data.foods, cal, recommendations: data.recommendations, today });
-  // opening-balance miles aren't a real week of training
-  const extra = personalOf(cal).extraWalk;
-  const bestWeek = weeklyTotals(challenge, data.activities.filter((a) => !a.isBaseline)).sort((a, b) => b.total - a.total)[0];
-  const blocks = [
-    r.bestDayType && { l: 'Most productive days', v: r.bestDayType.label, s: fmtDist(r.bestDayType.mi) },
-    r.bestWeekday && { l: 'Strongest weekday', v: r.bestWeekday.name, s: fmtDist(r.bestWeekday.mi) },
-    extra.enabled && { l: extra.label, v: r.extendedWalks, s: r.extendedWalks ? `≈${fmtDist(r.extendedWalks * extra.mi)} added` : 'none yet' },
-    { l: 'Average energy', v: r.energyAvg != null ? `${r.energyAvg}/10` : '–', s: `${r.energyDays} ${r.energyDays === 1 ? 'day' : 'days'} logged` },
-    { l: 'Food logged', v: r.foodEntries, s: r.foodEntries === 1 ? 'entry' : 'entries' },
-    bestWeek && bestWeek.total > 0 && { l: 'Best week', v: fmtDist(bestWeek.total), s: `w/c ${formatDate(bestWeek.weekStart, { short: true, weekday: false })}` },
-  ].filter(Boolean);
-  return (
-    <section aria-label="What's working">
-      <h3 style={{ marginBottom: 10 }}>{today > challenge.endDate ? 'What worked' : "What's working"}</h3>
-      <div className="kpi-row worked">
-        {blocks.map((b) => (
-          <div className="kpi" key={b.l}>
-            <div className="l">{b.l}</div>
-            <div className="v">{b.v}</div>
-            <div className="tiny faint">{b.s}</div>
-          </div>
-        ))}
-      </div>
     </section>
   );
 }
