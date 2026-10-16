@@ -4,11 +4,10 @@ import { useSheets } from '../App.jsx';
 import { Icon, Banner, Empty } from '../components/ui.jsx';
 import { DailyChart } from '../components/charts.jsx';
 import { resizeImage } from '../components/forms.jsx';
-import { challengeActivities, challengeStatus, countsToward, dailyTotals, sumMiles } from '../shared/calc.js';
-import { addDays, dateRange, diffDays, formatDate, startOfWeek } from '../shared/dates.js';
+import { challengeActivities, countsToward, dailyTotals, sumMiles } from '../shared/calc.js';
+import { dateRange, formatDate } from '../shared/dates.js';
 import { contextFingerprint } from '../shared/coach.js';
 import { resolveDay } from '../shared/schedule.js';
-import { challengeReview } from '../shared/reviews.js';
 import { RecoveryAndFuelling } from './Nutrition.jsx';
 import { ActivityHistory } from './Challenge.jsx';
 import { dist, distFixed, fmtDist, unitShort } from '../shared/units.js';
@@ -72,21 +71,11 @@ export default function Dashboard() {
 
 /* ---------- Block 1: read-only progress and totals (compact) ---------- */
 function ProgressCard() {
-  const { coaching, challenge, data, cal, today } = useStore();
+  const { coaching, challenge, data } = useStore();
   const { status } = coaching;
-  const review = challengeReview({ challenge, activities: data.activities, energyLogs: data.energyLogs, foods: data.foods, cal, recommendations: data.recommendations, today });
   const counted = challenge.activityTypes || ['run', 'walk'];
   const distTypes = LOG_ORDER.filter((t) => counted.includes(t) && isDistanceType(t));
 
-  // This week (Mon–Sun, clipped to the challenge). "Needed" is fixed at the start of the week;
-  // "needed per week from now" moves as you log distance.
-  const ws = startOfWeek(today) < challenge.startDate ? challenge.startDate : startOfWeek(today);
-  const we = addDays(startOfWeek(today), 6) > challenge.endDate ? challenge.endDate : addDays(startOfWeek(today), 6);
-  const inWeek = challengeActivities(data.activities, challenge).filter((a) => a.date >= ws && a.date <= we);
-  const weekDone = sumMiles(inWeek);
-  const atWeekStart = challengeStatus(challenge, data.activities.filter((a) => a.date < ws), ws);
-  const weekNeeded = atWeekStart.requiredPerDay * (diffDays(ws, we) + 1);
-  const inChallenge = today >= challenge.startDate && today <= challenge.endDate;
   const boxMinutes = counted.includes('box')
     ? challengeActivities(data.activities, challenge)
         .filter((a) => a.type === 'box')
@@ -120,9 +109,6 @@ function ProgressCard() {
         ))}
         {boxMinutes != null && <Cell dot="box" label="Boxing" value={boxMinutes} unit="min" />}
         <Cell label="Remaining" value={distFixed(status.remainingMi)} unit={unitShort()} />
-        <Cell label="Days left" value={status.daysRemaining} unit={`of ${status.totalDays}`} />
-        {inChallenge && <Cell label="This week" value={`${dist(weekDone)}/${dist(weekNeeded)}`} unit={unitShort()} />}
-        <Cell label="Active days" value={review.activeDays} unit="" />
       </div>
     </section>
   );
