@@ -32,6 +32,7 @@ export function WeeklyBars({ weeks, weeklyTarget, current }) {
   );
 }
 
+const PLANNED_ORDER = ['run', 'walk']; // top to bottom
 const OFF_LABEL = { unavailable: 'unavailable', rest: 'rest day', busy: 'busy' };
 const TYPE_COLOUR = { run: 'var(--run)', walk: 'var(--walk)', cycle: 'var(--cycle)', swim: 'var(--swim)', box: 'var(--box)' };
 
@@ -95,7 +96,11 @@ export function DailyChart({ days, types, guide, guideLabel, onPick, finish }) {
             >
               <div className="dc-val num">{total || d.planned ? dist(total + (d.planned || 0)) : ''}</div>
               <div className="dc-bars">
-                {d.planned > 0 && <span className="planned" style={{ height: `${(d.planned / max) * 100}%` }} />}
+                {d.planned > 0 &&
+                  PLANNED_ORDER.filter((k) => (d.plannedParts?.[k] || 0) > 0).map((k) => (
+                    <span key={`p-${k}`} className="planned" style={{ height: `${(d.plannedParts[k] / max) * 100}%`, borderColor: TYPE_COLOUR[k] }} />
+                  ))}
+                {d.planned > 0 && !Object.keys(d.plannedParts || {}).length && <span className="planned" style={{ height: `${(d.planned / max) * 100}%` }} />}
                 {[...types].reverse().map((k) => (d.parts[k] > 0 ? <span key={k} className="done" style={{ height: `${(d.parts[k] / max) * 100}%`, background: TYPE_COLOUR[k] }} /> : null))}
               </div>
               <div className="dc-day">

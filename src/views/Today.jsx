@@ -59,10 +59,10 @@ export default function Dashboard() {
         <ProgressCard />
         <StatusLine />
         <LogButtons />
-        <FoodLogger />
         <RecoveryAndFuelling />
         <DailyMileage />
         <CoachNote />
+        <FoodLogger />
         <ActivityHistory />
       </div>
     </>
@@ -374,7 +374,7 @@ function LogButtons() {
           Log {typeNoun(t).toLowerCase()}
         </button>
       ))}
-      <button onClick={() => open('energy')}>
+      <button className="energy" onClick={() => open('energy')}>
         <Icon name="energy" />
         Log energy
       </button>
@@ -383,6 +383,17 @@ function LogButtons() {
 }
 
 /* ---------- Daily mileage across the challenge ---------- */
+// Planned distance by activity; anything without a walk/run type is treated as a run.
+function plannedByType(day) {
+  const out = {};
+  for (const s of day?.sessions || []) {
+    if (s.optional) continue;
+    const t = s.type === 'walk' ? 'walk' : 'run';
+    out[t] = (out[t] || 0) + Number(s.distanceMi || 0);
+  }
+  return out;
+}
+
 function DailyMileage() {
   const { coaching, challenge, data, today, cal } = useStore();
   const { open } = useSheets();
@@ -395,6 +406,7 @@ function DailyMileage() {
     date: d,
     parts: Object.fromEntries(distTypes.map((t) => [t, totals[d]?.[t] || 0])),
     planned: d >= today ? plan.plannedByDate[d] || 0 : 0,
+    plannedParts: d >= today ? plannedByType(plan.days.find((x) => x.date === d)) : {},
     isToday: d === today,
     isPast: d < today,
     off: resolveDay(d, cal).status,

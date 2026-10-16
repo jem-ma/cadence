@@ -171,7 +171,7 @@ p { margin: 0 0 8px; }
 .stat .value small { font-size: var(--fs-3); color: var(--ink-3); font-family: var(--font); }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: var(--fs-2); color: var(--ink-2); }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
-.dot.run { background: var(--run); } .dot.walk { background: var(--walk); } .dot.target { background: var(--target); } .dot.plan { background: transparent; border: 2px dashed var(--run); width: 10px; height: 10px; }
+.dot.run { background: var(--run); } .dot.walk { background: var(--walk); } .dot.target { background: var(--target); } .dot.plan { background: transparent; border: 2px dashed var(--ink-3); width: 10px; height: 10px; }
 
 /* ---------- chips & badges ---------- */
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; font-size: var(--fs-2); font-weight: 500; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
@@ -206,12 +206,18 @@ p { margin: 0 0 8px; }
 
 .quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px; }
 .quick button {
+  --tone: var(--accent);
   display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px;
-  border-radius: 14px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: var(--fs-2); color: var(--ink-2);
+  border-radius: 14px; border: 1.5px solid var(--tone); background: color-mix(in srgb, var(--tone) 7%, var(--surface));
+  cursor: pointer; font-size: var(--fs-2); font-weight: 600; color: var(--ink);
+  transition: background 0.15s, transform 0.1s;
 }
-.quick button:hover { background: var(--surface-2); color: var(--ink); }
-.quick button svg { width: 22px; height: 22px; color: var(--ink); }
-.quick .run svg { color: var(--run); } .quick .walk svg { color: var(--walk); }
+.quick button:hover { background: color-mix(in srgb, var(--tone) 16%, var(--surface)); }
+.quick button:active { transform: translateY(1px); }
+.quick button:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
+.quick .run { --tone: var(--run); } .quick .walk { --tone: var(--walk); } .quick .cycle { --tone: var(--cycle); }
+.quick .swim { --tone: var(--swim); } .quick .box { --tone: var(--box); } .quick .energy { --tone: var(--info); }
+.quick button svg { width: 22px; height: 22px; color: var(--tone); }
 
 /* ---------- coach card ---------- */
 .coach { position: relative; overflow: hidden; }
@@ -391,7 +397,7 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 
 /* ---------- daily chart ---------- */
 .dc-scroll { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
-.dc-track { position: relative; display: flex; gap: 4px; min-width: max-content; padding-top: 4px; }
+.dc-track { position: relative; display: flex; gap: 4px; width: max-content; min-width: 100%; padding-top: 4px; }
 .dc-col { flex: 0 0 56px; min-width: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; border-radius: 8px; border: 1px solid transparent; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .dc-col:hover { border-color: var(--line); background: var(--surface-2); }
 .dc-col:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -414,7 +420,7 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .dc-final-sub.short { color: var(--warn); }
 .dc-final-spacer { margin-left: 4px; }
 .dc-col.mon::before { content: ''; position: absolute; left: -3px; top: 0; bottom: 0; border-left: 1px solid var(--line); }
-.dc-weeks { display: flex; gap: 4px; min-width: max-content; margin-top: 8px; }
+.dc-weeks { display: flex; gap: 4px; width: max-content; margin-top: 8px; }
 .dc-week { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; border-radius: 8px; background: var(--surface-2); min-width: 0; text-align: center; }
 .dc-week.current { background: var(--surface-3); }
 .dc-week strong { font-family: var(--display); font-size: var(--fs-4); font-weight: 400; line-height: 1.1; }
@@ -472,7 +478,6 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .icon.cycle { background: var(--cycle-soft); color: var(--cycle); }
 .icon.swim { background: var(--swim-soft); color: var(--swim); }
 .icon.box { background: var(--box-soft); color: var(--box); }
-.quick .cycle svg { color: var(--cycle); } .quick .swim svg { color: var(--swim); } .quick .box svg { color: var(--box); }
 .progress .cycle { background: var(--cycle); } .progress .swim { background: var(--swim); } .progress .box { background: var(--box); }
 
 /* filter pills */
