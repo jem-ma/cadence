@@ -119,6 +119,8 @@ test('the daily note is written once, then served from the cache', async () => {
   assert.equal(sent.headers['anthropic-workspace-id'], 'wrkspc_test', 'the workspace header is sent when configured');
   assert.equal(sent.body.output_config.format.type, 'json_schema');
   assert.ok(JSON.stringify(sent.body.messages).includes('October 100'), 'the AI receives the challenge summary');
+  assert.ok(JSON.stringify(sent.body.messages).includes('thisWeek'), 'the note is built week by week');
+  assert.match(sent.body.system, /week by week/);
   const n = calls.length;
   const again = await call('/coach/note', { method: 'POST', body: { localNow: '2026-10-14T10:00' } });
   assert.equal(again.body.note.note, first.body.note.note);

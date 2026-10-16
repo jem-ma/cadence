@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { seedData } from '../src/shared/seed.js';
 import { challengeStatus, findPossibleDuplicate } from '../src/shared/calc.js';
 import { planChallenge } from '../src/shared/planner.js';
-import { buildCoaching, mealContext } from '../src/shared/coach.js';
+import { buildCoaching, mealContext, weekContext } from '../src/shared/coach.js';
 import { estimateFromText } from '../src/shared/nutrition.js';
 import { addDays, weekday } from '../src/shared/dates.js';
 
@@ -337,4 +337,22 @@ test('period days get lighter sessions than the same day type without a period',
   const runOn = (p) => p.days.find((x) => x.date === wed).sessions.find((s) => s.type === 'run' && !s.optional);
   assert.ok(runOn(base) && runOn(withPeriod), 'a run is planned either way');
   assert.ok(runOn(withPeriod).distanceMi < runOn(base).distanceMi, `${runOn(withPeriod).distanceMi} < ${runOn(base).distanceMi}`);
+});
+
+test('coach note context works week by week: last week, this week day by day, next week', () => {
+  const d = fixture();
+  d.activities = [...d.activities, { id: 'r1', date: '2026-10-12', type: 'run', distanceMi: 4.5, startTime: '18:30' }, { id: 'w1', date: '2026-10-08', type: 'walk', distanceMi: 3 }];
+  const ctx = buildCoaching(d, at('2026-10-14T09:00'));
+  const w = weekContext(ctx, d);
+  assert.deepEqual(w.thisWeek.dates, ['2026-10-12', '2026-10-18']);
+  assert.equal(w.thisWeek.done, 4.5, 'opening balance on 11 Oct is not part of any week');
+  assert.equal(w.thisWeek.days.length, 7);
+  assert.equal(w.thisWeek.days[0].weekday, 'Mon');
+  assert.ok(!('planned' in w.thisWeek.days[0]) && Array.isArray(w.thisWeek.days[2].planned), 'plans shown from today on');
+  assert.equal(w.thisWeek.daysLeftInclToday, 5);
+  assert.ok(w.thisWeek.needed > 0 && w.thisWeek.projected >= w.thisWeek.done);
+  assert.deepEqual(w.lastWeek.dates, ['2026-10-05', '2026-10-11']);
+  assert.equal(w.lastWeek.done, 3);
+  assert.deepEqual(w.nextWeek.dates, ['2026-10-19', '2026-10-25']);
+  assert.equal(w.nextWeek.days.length, 7);
 });

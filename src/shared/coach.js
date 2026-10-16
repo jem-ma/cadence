@@ -1,8 +1,8 @@
 // Rule-based daily coach. Combines the deterministic planner, today's energy, food log and
 // calendar into a structured recommendation. The AI layer (server) receives this as context
 // and may rephrase/refine it, but all numbers come from here.
-import { addDays, formatDuration, nowMinutes, timeToMin, weekday, toISODate } from './dates.js';
-import { challengeStatus, round1, sumMiles } from './calc.js';
+import { addDays, diffDays, formatDuration, nowMinutes, startOfWeek, timeToMin, weekday, toISODate } from './dates.js';
+import { challengeActivities, challengeStatus, round1, sumMiles } from './calc.js';
 import { planChallenge } from './planner.js';
 import { resolveDay, personalOf } from './schedule.js';
 import { nutritionAdvice, dayNutritionTotals } from './nutrition.js';
@@ -284,6 +284,7 @@ export function aiContext(ctx, data) {
       period: d.day.period.active,
       sessions: d.sessions.map((s) => `${s.label} ${dist(s.distanceMi)}${unitWord() === 'km' ? 'km' : 'mi'}${s.time ? ' @' + s.time : ''}${s.optional ? ' (optional)' : ''}`),
     })),
+    weeks: weekContext(ctx, data),
     recentActivities: recent,
     patterns: patterns.findings.map((f) => f.text),
     nutritionPrefs: data.profile?.nutrition || {},
@@ -373,4 +374,84 @@ export function mealContext(ctx, data, { mealSlot } = {}) {
     nutritionPrefs: data.profile?.nutrition || {},
     pantry: data.profile?.pantry || [],
   };
+}
+
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * The challenge week by week (Mon–Sun, clipped to the challenge): last week, this week day by day,
+ * and next week. "needed" for a week is fixed at its start (what was left then, spread evenly);
+ * next week's uses today's average. Opening-balance distance isn't part of any week.
+ */
+export function weekContext(ctx, data) {
+  const { challenge } = data;
+  const D = (mi) => round1(toUnit(mi));
+  const today = ctx.today;
+  const acts = challengeActivities(data.activities, challenge).filter((a) => !a.isBaseline && !a.deleted && !a.excluded);
+  const planByDate = Object.fromEntries(ctx.plan.days.map((d) => [d.date, d]));
+  const clip = (ws) => {
+    const from = ws < challenge.startDate ? challenge.startDate : ws;
+    const to = addDays(ws, 6) > challenge.endDate ? challenge.endDate : addDays(ws, 6);
+    return from <= to ? [from, to] : null;
+  };
+  const neededFrom = (from, to) => challengeStatus(challenge, data.activities.filter((a) => a.date < from), from).requiredPerDay * (diffDays(from, to) + 1);
+  const done = (from, to) => sumMiles(acts.filter((a) => a.date >= from && a.date <= to));
+  const plannedFrom = (from, to) => ctx.plan.days.filter((d) => d.date >= from && d.date <= to).reduce((t, d) => t + d.plannedMi, 0);
+  const sessions = (date) => (planByDate[date]?.sessions || []).filter((x) => !x.optional).map((x) => `${x.label} ${D(x.distanceMi)}${x.time ? ' @' + x.time : ''}`);
+
+  const ws = startOfWeek(today);
+  const out = {};
+
+  const last = clip(addDays(ws, -7));
+  if (last && last[1] < today) {
+    out.lastWeek = { dates: last, done: D(done(...last)), needed: D(neededFrom(...last)) };
+    const opening = sumMiles(challengeActivities(data.activities, challenge).filter((a) => a.isBaseline && a.date <= last[1]));
+    if (opening > 0) out.lastWeek.openingBalance = { distance: D(opening), note: 'Distance done before they started using Cadence, logged as one lump, not by day. Don’t treat last week as missed.' };
+  }
+
+  const cur = clip(ws);
+  if (cur) {
+    const [from, to] = cur;
+    const doneMi = done(from, to);
+    const planned = plannedFrom(today > from ? today : from, to);
+    const needed = neededFrom(from, to);
+    out.thisWeek = {
+      dates: cur,
+      needed: D(needed),
+      done: D(doneMi),
+      stillPlanned: D(planned),
+      projected: D(doneMi + planned),
+      shortOfNeeded: D(Math.max(0, needed - doneMi - planned)),
+      aheadOfNeeded: D(Math.max(0, doneMi + planned - needed)),
+      daysLeftInclToday: today > to ? 0 : diffDays(today > from ? today : from, to) + 1,
+      days: [],
+    };
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      const day = planByDate[d]?.day || resolveDay(d, data.cal || {});
+      out.thisWeek.days.push({
+        date: d,
+        weekday: WD[weekday(d)],
+        dayType: day?.label || null,
+        status: day?.status || null,
+        period: !!day?.period?.active,
+        done: D(done(d, d)),
+        ...(d >= today ? { planned: sessions(d) } : {}),
+      });
+    }
+  }
+
+  const next = clip(addDays(ws, 7));
+  if (next) {
+    out.nextWeek = {
+      dates: next,
+      planned: D(plannedFrom(...next)),
+      neededAtTodaysAverage: D(ctx.status.requiredPerDay * (diffDays(...next) + 1)),
+      days: [],
+    };
+    for (let d = next[0]; d <= next[1]; d = addDays(d, 1)) {
+      const p = planByDate[d];
+      out.nextWeek.days.push({ date: d, weekday: WD[weekday(d)], dayType: p?.day?.label || null, period: !!p?.day?.period?.active, planned: sessions(d) });
+    }
+  }
+  return out;
 }
