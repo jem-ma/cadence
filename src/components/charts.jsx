@@ -36,7 +36,7 @@ const OFF_LABEL = { unavailable: 'unavailable', rest: 'rest day', busy: 'busy' }
 const TYPE_COLOUR = { run: 'var(--run)', walk: 'var(--walk)', cycle: 'var(--cycle)', swim: 'var(--swim)', box: 'var(--box)' };
 
 /** Column geometry — keep in step with .dc-col (width) and .dc-track (gap) in styles.css. */
-const COL = 46;
+const COL = 56;
 const GAP = 4;
 
 /**
@@ -44,7 +44,7 @@ const GAP = 4;
  * Completed bars are solid, stacked by activity; planned distance is dashed (on top of today's logged distance).
  * Below the days, a row of Mon–Sun weekly totals: logged so far plus what's still planned.
  */
-export function DailyChart({ days, types, guide, guideLabel, onPick }) {
+export function DailyChart({ days, types, guide, guideLabel, onPick, finish }) {
   const ref = useRef(null);
   const sum = (d) => types.reduce((t, k) => t + (d.parts[k] || 0), 0);
   const max = Math.max(guide || 0, ...days.map((d) => sum(d) + (d.planned || 0)), 1) * 1.12;
@@ -78,7 +78,7 @@ export function DailyChart({ days, types, guide, guideLabel, onPick }) {
     <div className="dc-scroll" ref={ref}>
       <div className="dc-track">
         {guide > 0 && (
-          <div className="dc-guide" style={{ bottom: `${48 + (guide / max) * 140}px` }} title={guideLabel}>
+          <div className="dc-guide" style={{ bottom: `${48 + (guide / max) * 140}px`, right: finish ? 96 : 0 }} title={guideLabel}>
             <span>{guideLabel}</span>
           </div>
         )}
@@ -107,6 +107,17 @@ export function DailyChart({ days, types, guide, guideLabel, onPick }) {
             </button>
           );
         })}
+        {finish && (
+          <div className="dc-final" title={`Logged so far plus everything still planned: ${dist(finish.projected)} ${unitShort()} against a ${dist(finish.target)} ${unitShort()} target`}>
+            <span className="dc-final-label">Finish</span>
+            <strong className="num">
+              {dist(finish.projected)} <small>{unitShort()}</small>
+            </strong>
+            <span className={`dc-final-sub ${finish.projected + 0.05 < finish.target ? 'short' : ''}`}>
+              {finish.projected + 0.05 < finish.target ? `${dist(finish.target - finish.projected)} short of ${dist(finish.target)}` : `target ${dist(finish.target)}`}
+            </span>
+          </div>
+        )}
       </div>
       <div className="dc-weeks" aria-label="Weekly totals">
         {weeks.map((w) => (
@@ -119,6 +130,7 @@ export function DailyChart({ days, types, guide, guideLabel, onPick }) {
             </span>
           </div>
         ))}
+        {finish && <div className="dc-final-spacer" aria-hidden="true" />}
       </div>
     </div>
   );

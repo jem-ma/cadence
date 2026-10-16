@@ -438,7 +438,7 @@ function DailyMileage() {
         </button>
         </div>
       </div>
-      <DailyChart onPick={(d) => open('day', { date: d })} days={days} types={distTypes} guide={status.requiredPerDay} guideLabel={`${dist(status.requiredPerDay)} ${unitShort()}/day needed`} />
+      <DailyChart onPick={(d) => open('day', { date: d })} finish={{ projected: status.totalMi + (plan.plannedMi || 0), target: status.target }} days={days} types={distTypes} guide={status.requiredPerDay} guideLabel={`${dist(status.requiredPerDay)} ${unitShort()}/day needed`} />
       {baseline > 0 && (
         <p className="tiny faint" style={{ margin: '6px 0 0' }}>
           Not shown by day: {fmtDist(baseline)} opening balance from before you started using Cadence.

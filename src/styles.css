@@ -392,7 +392,7 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 /* ---------- daily chart ---------- */
 .dc-scroll { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
 .dc-track { position: relative; display: flex; gap: 4px; min-width: max-content; padding-top: 4px; }
-.dc-col { flex: 0 0 46px; display: flex; flex-direction: column; align-items: center; border-radius: 8px; border: 1px solid transparent; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.dc-col { flex: 0 0 56px; min-width: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; border-radius: 8px; border: 1px solid transparent; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .dc-col:hover { border-color: var(--line); background: var(--surface-2); }
 .dc-col:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dc-col { position: relative; }
@@ -405,6 +405,14 @@ pre.code { background: var(--surface-2); padding: 12px; border-radius: 10px; ove
 .dc-bars span { display: block; width: 100%; }
 .dc-bars span:first-child { border-radius: 4px 4px 0 0; }
 .dc-bars .planned { border: 1.5px dashed var(--run); border-bottom: none; background: transparent; opacity: 0.7; }
+.dc-final, .dc-final-spacer { flex: 0 0 92px; }
+.dc-final { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 2px; padding: 0 0 52px 12px; margin-left: 4px; border-left: 1px dashed var(--line); }
+.dc-final-label { font-size: var(--fs-1); color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.dc-final strong { font-family: var(--display); font-size: var(--fs-5); font-weight: 400; line-height: 1; }
+.dc-final strong small { font-family: var(--font); font-size: var(--fs-2); color: var(--ink-3); }
+.dc-final-sub { font-size: var(--fs-1); color: var(--ink-3); }
+.dc-final-sub.short { color: var(--warn); }
+.dc-final-spacer { margin-left: 4px; }
 .dc-col.mon::before { content: ''; position: absolute; left: -3px; top: 0; bottom: 0; border-left: 1px solid var(--line); }
 .dc-weeks { display: flex; gap: 4px; min-width: max-content; margin-top: 8px; }
 .dc-week { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; border-radius: 8px; background: var(--surface-2); min-width: 0; text-align: center; }
